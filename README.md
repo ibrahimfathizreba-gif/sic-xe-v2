@@ -40,6 +40,11 @@ Requires Node.js 20.19+ or 22.12+.
 
 - **3D machine view**: CPU blocks, registers and memory on a board. Light pulses follow the real data path of the last instruction (cyan = fetch, amber = execute, green = store). Memory rows far from the program (for example a buffer after `RESB 3000`) are brought onto the board when an instruction uses them.
 
+- **Load machine code directly**: paste raw hex at any start address, or a Beck object program (H/T/M/E, with or without `^`). It is disassembled, and Step, Back and the timeline work as usual. Handy for checking "decode this hex" exercises.
+- **Reference sheet** (`?`): the hand-encoding method, bit layouts of formats 1–4, `n i` and `x b p e` rules, registers, directives and a searchable opcode table.
+- **Demo walkthrough**: nine steps that drive the app on their own (assembler output, object program, decoding `TIX`, a loop, going back, base-relative and format 4, decoding the handout's hex). Press Next to present.
+- **Memory tools**: ASCII column, jump to any address, copy the execution log.
+
 - **Five example programs**: sum 1..5, subroutine call, base-relative and format 4, buffer copy, Fibonacci. Each one is checked by an automatic test.
 
 ---
@@ -104,5 +109,6 @@ npm test
 
 - `src/sicxe/sicxe.test.ts`: single-instruction encodings, assembler output and the CPU trace for `sum1to5`.
 - `src/sicxe/examples.test.ts`: runs every example to completion and checks its result; checks that faults halt the CPU without moving PC.
+- `src/program.test.ts`: raw-hex and object-program loading, including the handout decode exercises (`4B101036` → `+JSUB 01036`, …).
 
 The same checks run on every push through GitHub Actions (`.github/workflows/ci.yml`), which also publishes the site to GitHub Pages.

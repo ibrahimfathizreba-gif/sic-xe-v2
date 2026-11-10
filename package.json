@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/sicxe/*.test.ts"
+    "test": "tsx --test src/*.test.ts src/sicxe/*.test.ts"
   },
   "dependencies": {
     "lucide-react": "^0.546.0",

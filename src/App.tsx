@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, StepForward, RotateCcw, Pencil, Check, StepBack } from 'lucide-react';
-import { Assembler } from './sicxe/assembler.ts';
+import { Play, Pause, StepForward, RotateCcw, Pencil, Check, StepBack, BookOpen, Presentation, Copy, Upload } from 'lucide-react';
 import { CPU } from './sicxe/cpu.ts';
 import { Memory } from './sicxe/memory.ts';
 import { Registers, toSigned24 } from './sicxe/registers.ts';
-import { Loader } from './sicxe/loader.ts';
 import { Decoder } from './sicxe/decoder.ts';
-import { EXAMPLES, ExampleProgram } from './sicxe/examples.ts';
-import { AssemblerResult, ConditionCode, DecodedInstruction, RegisterId, StepResult } from './sicxe/types.ts';
+import { EXAMPLES } from './sicxe/examples.ts';
+import { ConditionCode, DecodedInstruction, RegisterId, StepResult } from './sicxe/types.ts';
 import { explain, hex } from './explain.ts';
 import { Stage3D } from './Stage3D.tsx';
 import { memRows } from './memRows.ts';
+import { Built, LoadError, Program, Source, fromAssembly, fromHex, fromObject } from './program.ts';
+import { Reference } from './Reference.tsx';
+import { DEMO, DEMO_HEX, DemoAct, DemoBar, Tab } from './Demo.tsx';
 
 const REGS: [RegisterId, string][] = [
   ['A', 'Accumulator'], ['X', 'Index'], ['L', 'Return address'], ['B', 'Base'],
@@ -20,19 +21,27 @@ const CC: Record<ConditionCode, string> = { LT: 'Less than', EQ: 'Equal', GT: 'G
 const FLAGS = [['n', 'Indirect'], ['i', 'Immediate'], ['x', 'Indexed'], ['b', 'Base'], ['p', 'PC-rel'], ['e', 'Extended']] as const;
 const SPEEDS = [{ l: 'Slow', ms: 900 }, { l: 'Normal', ms: 350 }, { l: 'Fast', ms: 80 }];
 const ZERO: Record<RegisterId, number> = { A: 0, X: 0, L: 0, B: 0, S: 0, T: 0, F: 0, PC: 0, SW: 1 };
+const SOURCES: [Source, string][] = [['asm', 'Assembly'], ['hex', 'Raw hex'], ['obj', 'Object program']];
 // Safety stop for Play: a program that loops forever (without a jump-to-self) halts here.
 const MAX_STEPS = 5000;
+const ascii = (b: number) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '·');
 
 export default function App() {
   const [mem] = useState(() => new Memory());
   const [regs] = useState(() => new Registers());
-  const cpu = useRef<CPU | null>(null);
-  if (!cpu.current) cpu.current = new CPU(mem, regs);
+  const cpu = useRef<CPU>(new CPU(mem, regs));
 
-  const [ex, setEx] = useState<ExampleProgram>(EXAMPLES[0]);
+  // What is loaded, and the text in each of the three editors
+  const [prog, setProg] = useState<Program | null>(null);
+  const [errors, setErrors] = useState<LoadError[]>([]);
+  const [choice, setChoice] = useState(EXAMPLES[0].id); // highlighted chip: an example id, or 'own'
   const [src, setSrc] = useState(EXAMPLES[0].source);
-  const [editing, setEditing] = useState(false);
-  const [asm, setAsm] = useState<AssemblerResult | null>(null);
+  const [hexSrc, setHexSrc] = useState(DEMO_HEX);
+  const [hexAddr, setHexAddr] = useState('0');
+  const [objSrc, setObjSrc] = useState('');
+  const [editing, setEditing] = useState<Source | null>(null);
+
+  // Machine state shown on screen
   const [reg, setReg] = useState<Record<RegisterId, number>>(ZERO);
   const [cc, setCc] = useState<ConditionCode>('EQ');
   const [cur, setCur] = useState<DecodedInstruction | null>(null);
@@ -40,16 +49,23 @@ export default function App() {
   const [steps, setSteps] = useState(0);
   const [halted, setHalted] = useState(false);
   const [reason, setReason] = useState('');
-  const [running, setRunning] = useState(false);
-  const [speed, setSpeed] = useState(350);
   const [trace, setTrace] = useState<string[]>([]);
-  const [tab, setTab] = useState<'mem' | 'sym' | 'obj' | 'log'>('mem');
-  const [bp, setBp] = useState<Set<number>>(new Set());
-  const [sel, setSel] = useState<number | null>(null);
   const [maxSteps, setMax] = useState(0);
 
+  // Controls and panels
+  const [running, setRunning] = useState(false);
+  const [speed, setSpeed] = useState(350);
+  const [tab, setTab] = useState<Tab>('mem');
+  const [bp, setBp] = useState<Set<number>>(new Set());
+  const [sel, setSel] = useState<number | null>(null);
+  const [showRef, setShowRef] = useState(false);
+  const [demo, setDemo] = useState<number | null>(null);
+  const [goto, setGoto] = useState('');
+  const [gotoAddr, setGotoAddr] = useState<number | undefined>(undefined);
+  const [copied, setCopied] = useState(false);
+
   const sync = useCallback(() => {
-    const c = cpu.current!;
+    const c = cpu.current;
     setReg(regs.cloneValues());
     setCc(regs.getConditionCode());
     setSteps(c.stepCount);
@@ -59,22 +75,34 @@ export default function App() {
     catch { setCur(null); }
   }, [mem, regs]);
 
-  const assemble = useCallback((code: string) => {
+  // Load a program and replay n instructions. Used by Reset, Back, the timeline and the demo.
+  const boot = useCallback((p: Program, n: number) => {
     setRunning(false);
-    const res = Assembler.assemble(code);
-    setAsm(res); setLast(null); setTrace([]); setMax(0); setSel(null);
-    if (res.success && res.objectProgram) {
-      mem.clear();
-      regs.reset(res.startAddress);
-      Loader.load(res.objectProgram, mem, regs);
-      cpu.current = new CPU(mem, regs);
-      cpu.current.setProgramBounds(res.startAddress, res.programLength);
+    p.load(mem, regs);
+    const c = new CPU(mem, regs);
+    c.setProgramBounds(p.start, p.length);
+    cpu.current = c;
+    let r: StepResult | null = null;
+    const log: string[] = [];
+    for (let i = 0; i < n && !c.halted; i++) {
+      try { r = c.step(); log.push(r.traceLine); } catch { break; }
     }
-    sync();
+    setLast(r); setTrace(log); sync();
+    setMax((m) => Math.max(m, c.stepCount));
   }, [mem, regs, sync]);
 
+  // Switch to a new program (or show why it could not be loaded)
+  const use = useCallback((b: Built, n = 0) => {
+    setRunning(false); setSel(null); setMax(0); setGotoAddr(undefined);
+    setErrors(b.errors);
+    setProg(b.program);
+    if (b.program) boot(b.program, n);
+    else { setLast(null); setTrace([]); setCur(null); setHalted(false); }
+    return b.program;
+  }, [boot]);
+
   const step = useCallback(() => {
-    const c = cpu.current!;
+    const c = cpu.current;
     if (c.halted) return;
     if (c.stepCount >= MAX_STEPS) {
       c.halted = true;
@@ -97,27 +125,51 @@ export default function App() {
     }
   }, [sync, bp, regs]);
 
-  const reset = useCallback(() => assemble(src), [assemble, src]);
-  // Time travel: rebuild the machine and replay n steps
-  const jump = useCallback((n: number) => {
-    if (!asm?.success || !asm.objectProgram) return;
-    setRunning(false);
-    mem.clear(); regs.reset(asm.startAddress);
-    Loader.load(asm.objectProgram, mem, regs);
-    const c = new CPU(mem, regs);
-    c.setProgramBounds(asm.startAddress, asm.programLength);
-    cpu.current = c;
-    let r: StepResult | null = null;
-    const log: string[] = [];
-    for (let i = 0; i < n && !c.halted; i++) {
-      try { r = c.step(); log.push(r.traceLine); } catch { break; }
-    }
-    setLast(r); setTrace(log); sync();
-    setMax((m) => Math.max(m, c.stepCount));
-  }, [asm, mem, regs, sync]);
-  const pick = (e: ExampleProgram) => { setEx(e); setSrc(e.source); setEditing(false); assemble(e.source); };
+  const jump = useCallback((n: number) => { if (prog) boot(prog, Math.max(0, n)); }, [prog, boot]);
+  const reset = () => { if (prog) boot(prog, 0); };
 
-  useEffect(() => { assemble(EXAMPLES[0].source); }, []);
+  const pick = (id: string) => {
+    const e = EXAMPLES.find((x) => x.id === id)!;
+    setChoice(id); setSrc(e.source); setEditing(null);
+    return use(fromAssembly(e.source));
+  };
+
+  const openEditor = (s: Source) => {
+    setRunning(false);
+    if (s === 'obj' && !objSrc && prog?.objectText) setObjSrc(prog.objectText);
+    setEditing(s);
+  };
+  const loadEditor = () => {
+    if (!editing) return;
+    const b = editing === 'asm' ? fromAssembly(src) : editing === 'hex' ? fromHex(hexSrc, hexAddr) : fromObject(objSrc);
+    setChoice('own');
+    if (use(b)) setEditing(null);
+  };
+
+  // Put the app into the state a demo step describes
+  const act = (a: DemoAct) => {
+    let p: Program | null;
+    if (a.load === 'hex') {
+      setChoice('own'); setHexSrc(DEMO_HEX); setHexAddr('0'); setEditing(null);
+      p = use(fromHex(DEMO_HEX, '0'));
+    } else p = pick(a.load);
+    if (p && a.steps) boot(p, a.steps);
+    setSel(a.sel ?? null);
+    if (a.tab) setTab(a.tab);
+    setShowRef(!!a.reference);
+  };
+  const goDemo = (i: number) => { const k = Math.max(0, Math.min(DEMO.length - 1, i)); setDemo(k); act(DEMO[k].act); };
+
+  const copyLog = async () => {
+    try { await navigator.clipboard.writeText(trace.join('\n')); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { setCopied(false); }
+  };
+  const doGoto = () => {
+    const t = goto.trim(), a = parseInt(t, 16);
+    setGotoAddr(/^[0-9A-Fa-f]{1,5}$/.test(t) && a < mem.size ? a : undefined);
+  };
+
+  useEffect(() => { pick(EXAMPLES[0].id); }, []);
   useEffect(() => {
     if (!running) return;
     if (halted) { setRunning(false); return; }
@@ -128,21 +180,22 @@ export default function App() {
     const k = (e: KeyboardEvent) => {
       const t = e.target;
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLInputElement) return;
+      if (e.key === '?') { e.preventDefault(); setShowRef((v) => !v); return; }
+      if (showRef) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); step(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); if (steps > 0) jump(steps - 1); }
       else if (e.key === ' ' && !(t instanceof HTMLButtonElement)) { e.preventDefault(); setRunning((r) => !r); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [step, jump, steps]);
+  }, [step, jump, steps, showRef]);
 
-  const ok = !!asm?.success;
+  const ok = !!prog;
   const pc = reg.PC;
   const chRegs = last?.registerChanges ?? [];
   const chMem = last?.memoryChanges ?? [];
-  const memStart = asm?.startAddress ?? 0;
-  const base = Math.floor(memStart / 16) * 16;
-  const progRows = asm?.success ? Math.ceil((asm.programLength + memStart - base) / 16) : 0;
+  const base = prog ? Math.floor(prog.start / 16) * 16 : 0;
+  const progRows = prog ? Math.ceil((prog.length + prog.start - base) / 16) : 0;
   // Rows that must be visible: the instruction that ran, the next one, and any memory it read or wrote
   const focus = progRows ? [
     last?.pcBefore,
@@ -151,7 +204,7 @@ export default function App() {
     last && last.instruction.format >= 3 && last.instruction.addressingMode !== 'immediate' ? last.instruction.targetAddress : undefined,
   ] : [];
   const boardRows = memRows(base, progRows, 8, focus);
-  const tableRows = memRows(base, progRows, 12, focus);
+  const tableRows = memRows(base, progRows, 12, [...focus, gotoAddr]);
   const toggleBp = (loc: number) => setBp((b) => { const n = new Set(b); if (n.has(loc)) n.delete(loc); else n.add(loc); return n; });
   const shown = (() => { if (sel === null) return cur; try { return Decoder.decode(sel, mem, regs); } catch { return null; } })();
   const fmt34 = shown && (shown.format === 3 || shown.format === 4);
@@ -162,18 +215,23 @@ export default function App() {
         <div className="brand"><b>SIC/XE</b> Lab</div>
         <nav className="chips" aria-label="Example programs">
           {EXAMPLES.map((e) => (
-            <button key={e.id} className={'chip' + (e.id === ex.id ? ' on' : '')} onClick={() => pick(e)}>
+            <button key={e.id} className={'chip' + (e.id === choice ? ' on' : '')} onClick={() => { setDemo(null); pick(e.id); }}>
               {e.title.split(' (')[0]}
             </button>
           ))}
+          <span className="sep" />
+          <button className="chip tool" onClick={() => (demo === null ? goDemo(0) : setDemo(null))}><Presentation size={15} /> Demo</button>
+          <button className="chip tool" onClick={() => setShowRef(true)} title="Reference sheet (?)"><BookOpen size={15} /> Reference</button>
         </nav>
       </header>
 
+      {demo !== null && <DemoBar at={demo} go={goDemo} close={() => setDemo(null)} />}
+
       <section className="now" data-enter aria-live="polite">
-        {!ok && asm ? (
+        {!ok && errors.length ? (
           <>
             <p className="label">Fix these first</p>
-            {asm.errors.map((er, i) => <div key={i} className="msg bad">Line {er.line}: {er.message}</div>)}
+            {errors.map((er, i) => <div key={i} className="msg bad">{er.line ? `Line ${er.line}: ` : ''}{er.message}</div>)}
           </>
         ) : halted ? (
           <>
@@ -185,7 +243,7 @@ export default function App() {
           <>
             <p className="label">{steps === 0 ? 'Ready. Press Step to run the first instruction' : `Next instruction · step ${steps + 1}`}</p>
             <p className="big">{cur ? cur.disassembly : '…'}</p>
-            <p className="say">{cur ? explain(cur) : ex.description}</p>
+            <p className="say">{cur ? explain(cur) : 'This byte is not a valid instruction.'}</p>
             {last && (
               <p className="did">
                 <b>Just ran</b> {last.instruction.disassembly}
@@ -211,19 +269,37 @@ export default function App() {
       <main className="grid">
         <section className="card">
           <h2>
-            <span>Program <span className="hint">· click a line to inspect it, the dot to set a breakpoint</span></span>
+            <span>Program {!editing && <span className="hint">· {prog && prog.source !== 'asm' ? 'disassembled from machine code · ' : ''}click a line to inspect it, the dot to set a breakpoint</span>}</span>
             {editing
-              ? <button className="link" onClick={() => { setEditing(false); assemble(src); }}><Check size={16} /> Assemble</button>
-              : <button className="link" onClick={() => { setRunning(false); setEditing(true); }}><Pencil size={14} /> Edit</button>}
+              ? <span className="acts"><button className="link" onClick={() => setEditing(null)}>Cancel</button><button className="link" onClick={loadEditor}><Check size={16} /> {editing === 'asm' ? 'Assemble' : 'Load'}</button></span>
+              : <span className="acts"><button className="link" onClick={() => openEditor('hex')}><Upload size={14} /> Load code</button><button className="link" onClick={() => openEditor('asm')}><Pencil size={14} /> Edit</button></span>}
           </h2>
           {editing ? (
-            <textarea className="ed" value={src} onChange={(e) => setSrc(e.target.value)} spellCheck={false} aria-label="Assembly source" />
+            <>
+              <div className="seg" role="tablist" aria-label="What to load">
+                {SOURCES.map(([k, t]) => <button key={k} role="tab" className={editing === k ? 'on' : ''} onClick={() => openEditor(k)}>{t}</button>)}
+              </div>
+              {editing === 'asm' && <textarea className="ed" value={src} onChange={(e) => setSrc(e.target.value)} spellCheck={false} aria-label="Assembly source" />}
+              {editing === 'hex' && (
+                <>
+                  <p className="hint">Machine code in hex, spaces allowed. It is loaded into memory as-is and disassembled, which is how you check a "decode this" exercise.</p>
+                  <label className="addr">Start address (hex) <input value={hexAddr} onChange={(e) => setHexAddr(e.target.value)} spellCheck={false} /></label>
+                  <textarea className="ed short" value={hexSrc} onChange={(e) => setHexSrc(e.target.value)} spellCheck={false} aria-label="Machine code in hex" />
+                </>
+              )}
+              {editing === 'obj' && (
+                <>
+                  <p className="hint">A Beck object program: H, T, M and E records, with or without ^ between fields.</p>
+                  <textarea className="ed short" value={objSrc} onChange={(e) => setObjSrc(e.target.value)} spellCheck={false} aria-label="Object program" placeholder={'H^PROG^000000^00001A\nT^000000^...\nE^000000'} />
+                </>
+              )}
+            </>
           ) : (
-            asm?.listing.map((l) => (
-              <div key={l.lineNo} className={'ln' + (!halted && ok && l.objectCode && l.loc === pc ? ' pc' : '') + (sel === l.loc && l.format ? ' sel' : '')} onClick={() => l.format && setSel((x) => (x === l.loc ? null : l.loc))}>
-                <span className="a" title="Toggle breakpoint" onClick={(e) => { e.stopPropagation(); if (l.objectCode) toggleBp(l.loc); }}>{bp.has(l.loc) && l.objectCode ? <i>● </i> : ''}{l.objectCode ? hex(l.loc) : ''}</span>
-                <code>{l.sourceText}</code>
-                <span className="o">{l.objectCode}</span>
+            prog?.lines.map((l) => (
+              <div key={l.key} className={'ln' + (!halted && l.code && l.loc === pc ? ' pc' : '') + (sel === l.loc && l.inspect ? ' sel' : '')} onClick={() => l.inspect && setSel((x) => (x === l.loc ? null : l.loc))}>
+                <span className="a" title="Toggle breakpoint" onClick={(e) => { e.stopPropagation(); if (l.code) toggleBp(l.loc); }}>{bp.has(l.loc) && l.code ? <i>● </i> : ''}{l.code ? hex(l.loc) : ''}</span>
+                <code>{l.text}</code>
+                <span className="o">{l.code}</span>
               </div>
             ))
           )}
@@ -282,25 +358,38 @@ export default function App() {
             ))}
           </div>
           {tab === 'mem' && (
-            <div className="mwrap">
-              {tableRows.map((row, r) => (
-                <div key={row} className={'mrow' + (r > 0 && tableRows[r - 1] + 16 !== row ? ' gap' : '')}>
-                  <span className="ma">{hex(row, 5)}</span>
-                  {Array.from({ length: 16 }, (_, i) => {
-                    const a = row + i;
-                    const ch = chMem.some((m) => a >= m.address && a < m.address + m.newBytes.length);
-                    return <span key={a + (ch ? 'c' + steps : '')} title={'0x' + hex(a)} className={'b' + (ch ? ' ch' : '') + (a === pc && !halted ? ' pc' : '')}>{hex(mem.getByte(a), 2)}</span>;
-                  })}
-                </div>
-              ))}
-            </div>
+            <>
+              <form className="goto" onSubmit={(e) => { e.preventDefault(); doGoto(); }}>
+                <label>Show address (hex) <input value={goto} onChange={(e) => setGoto(e.target.value)} placeholder="e.g. 0BD2" spellCheck={false} /></label>
+                <button className="link" type="submit">Go</button>
+                {gotoAddr !== undefined && <button className="link" type="button" onClick={() => { setGoto(''); setGotoAddr(undefined); }}>Clear</button>}
+              </form>
+              <div className="mwrap">
+                {tableRows.map((row, r) => (
+                  <div key={row} className={'mrow' + (r > 0 && tableRows[r - 1] + 16 !== row ? ' gap' : '')}>
+                    <span className="ma">{hex(row, 5)}</span>
+                    {Array.from({ length: 16 }, (_, i) => {
+                      const a = row + i;
+                      const ch = chMem.some((m) => a >= m.address && a < m.address + m.newBytes.length);
+                      return <span key={a + (ch ? 'c' + steps : '')} title={'0x' + hex(a)} className={'b' + (ch ? ' ch' : '') + (a === pc && !halted ? ' pc' : '') + (a === gotoAddr ? ' go' : '')}>{hex(mem.getByte(a), 2)}</span>;
+                    })}
+                    <span className="asc" aria-label="ASCII">{Array.from({ length: 16 }, (_, i) => ascii(mem.getByte(row + i))).join('')}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
-          {tab === 'sym' && (
-            <table className="sym"><thead><tr><th>Label</th><th>Address</th><th>Defined on</th></tr></thead>
-              <tbody>{asm?.symbolList.map((s) => <tr key={s.name}><td>{s.name}</td><td>0x{hex(s.address)}</td><td>line {s.definedLine}</td></tr>)}</tbody></table>
+          {tab === 'sym' && (prog?.symbols.length
+            ? <table className="sym"><thead><tr><th>Label</th><th>Address</th><th>Defined on</th></tr></thead>
+              <tbody>{prog.symbols.map((s) => <tr key={s.name}><td>{s.name}</td><td>0x{hex(s.address)}</td><td>line {s.definedLine}</td></tr>)}</tbody></table>
+            : <p className="hint">No symbols: this program was loaded as machine code, without source.</p>)}
+          {tab === 'obj' && <pre className="p">{prog?.objectText ?? (prog ? 'Loaded as raw hex, so there is no object program.' : 'Load a valid program first.')}</pre>}
+          {tab === 'log' && (
+            <>
+              {trace.length > 0 && <button className="link copy" onClick={copyLog}><Copy size={14} /> {copied ? 'Copied' : 'Copy log'}</button>}
+              <pre className="p">{trace.length ? trace.join('\n') : 'Nothing has run yet.'}</pre>
+            </>
           )}
-          {tab === 'obj' && <pre className="p">{asm?.objectProgram?.fullText ?? 'Assemble a valid program first.'}</pre>}
-          {tab === 'log' && <pre className="p">{trace.length ? trace.join('\n') : 'Nothing has run yet.'}</pre>}
         </section>
       </main>
 
@@ -310,11 +399,13 @@ export default function App() {
         <button className="btn" onClick={() => setRunning((r) => !r)} disabled={!ok || halted}>
           {running ? <Pause size={18} /> : <Play size={18} />}<span>{running ? 'Pause' : 'Play'}</span>
         </button>
-        <button className="btn" onClick={reset}><RotateCcw size={18} /><span>Reset</span></button>
+        <button className="btn" onClick={reset} disabled={!ok}><RotateCcw size={18} /><span>Reset</span></button>
         <div className="speed" role="group" aria-label="Speed">
           {SPEEDS.map((s) => <button key={s.l} className={speed === s.ms ? 'on' : ''} onClick={() => setSpeed(s.ms)}>{s.l}</button>)}
         </div>
       </div>
+
+      {showRef && <Reference onClose={() => setShowRef(false)} />}
     </div>
   );
 }
