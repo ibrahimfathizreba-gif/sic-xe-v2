@@ -98,3 +98,35 @@ test('memRows keeps a far address on screen', () => {
   assert.equal(rowIndex(rows, 0x0bd2), rows.indexOf(0x0bd0) * 16 + 2);
   assert.equal(rowIndex(rows, 0x0500), null);
 });
+
+test('COPY (Beck Fig. 2.5) assembles to exactly the object program printed in Beck Fig. 2.8', () => {
+  const src = EXAMPLES.find((e) => e.id === 'copy')!.source;
+  const res = Assembler.assemble(src);
+  assert.equal(res.success, true);
+  assert.equal(res.objectProgram!.fullText, [
+    'H^COPY  ^000000^001077',
+    'T^000000^1D^17202D69202D4B1010360320262900003320074B10105D3F2FEC032010',
+    'T^00001D^13^0F20160100030F200D4B10105D3E2003454F46',
+    'T^001036^1D^B410B400B44075101000E32019332FFADB2013A00433200857C003B850',
+    'T^001053^1D^3B2FEA1340004F0000F1B410774000E32011332FFA53C003DF2008B850',
+    'T^001070^07^3B2FEF4F000005',
+    'M^000007^05',
+    'M^000014^05',
+    'M^000027^05',
+    'E^000000',
+  ].join('\n'));
+  // The handout's chapter 4 worked examples
+  const code = (text: string) => res.listing.find((l) => l.sourceText.replace(/\s+/g, ' ').trim().endsWith(text))!.objectCode;
+  assert.equal(code('LDB #LENGTH'), '69202D');
+  assert.equal(code('STCH BUFFER,X'), '57C003');
+  assert.equal(code('J @RETADR'), '3E2003');
+  assert.equal(code('LDA #3'), '010003');
+});
+
+test('COPY runs until the first device instruction and stops with a clear reason', () => {
+  const { cpu, registers } = boot(EXAMPLES.find((e) => e.id === 'copy')!.source);
+  assert.throws(() => cpu.run(1000), /TD is not supported/);
+  assert.equal(cpu.halted, true);
+  assert.equal(registers.get('PC'), 0x1040, 'stopped on RLOOP TD INPUT');
+  assert.equal(registers.get('T'), 4096);
+});

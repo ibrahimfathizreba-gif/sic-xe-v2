@@ -53,12 +53,12 @@ export const DEMO: DemoStep[] = [
     act: { load: 'sum1to5', asm: { phase: 'done' } },
   },
   {
-    title: ['Base-relative addressing', 'العنونة النسبية للقاعدة'],
+    title: ['Base-relative: the handout example', 'النسبية للقاعدة: مثال المذكّرة'],
     say: [
-      'BUFFER is about 3000 bytes away. PC-relative would need a displacement outside −2048..2047, so the assembler uses the BASE directive: disp = TA − B, with b = 1.',
-      `${c('BUFFER')} بعيد بحوالي ${c(3000)} بايت. النسبية للعداد تحتاج ${c('disp')} خارج ${c('−2048..2047')}، فيستخدم المجمّع توجيه ${c('BASE')}: ${c('disp = TA − B')}، مع ${c('b = 1')}.`,
+      "Beck's COPY program, the handout's own example: STCH BUFFER,X at 104E with BUFFER = 0036 and BASE LENGTH (B = 0033). PC-relative would need 0036 − 1051, far outside −2048..2047, so disp = TA − B = 0036 − 0033 = 003 with b = 1 and x = 1: 57C003. The whole object program matches Beck Fig. 2.8.",
+      `برنامج ${c('COPY')} من كتاب Beck، وهو مثال المذكّرة نفسه: ${c('STCH BUFFER,X')} عند ${c('104E')} و${c('BUFFER = 0036')} و${c('BASE LENGTH')} (${c('B = 0033')}). النسبية للعداد تحتاج ${c('0036 − 1051')} وهذا بعيد جداً عن ${c('−2048..2047')}، إذن ${c('disp = TA − B = 0036 − 0033 = 003')} مع ${c('b = 1')} و${c('x = 1')}: ${c('57C003')}. والـ ${c('object program')} كله يطابق الشكل ${c('2.8')} في الكتاب.`,
     ],
-    act: { load: 'base_format4', asm: { phase: 'p2', text: 'STCH' } },
+    act: { load: 'copy', asm: { phase: 'p2', text: 'STCH' } },
   },
   {
     title: ['Run it: first loop iteration', 'التنفيذ: أول دورة في الحلقة'],

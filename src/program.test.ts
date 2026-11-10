@@ -51,8 +51,8 @@ test('object program: the assembler output loads back and gives the same result'
       p.load(mem, regs);
       const cpu = new CPU(mem, regs);
       cpu.setProgramBounds(p.start, p.length);
-      cpu.run(1000);
-      return { a: regs.get('A'), steps: cpu.stepCount, reason: cpu.haltReason };
+      try { cpu.run(1000); } catch { /* COPY stops at its first device instruction; compare where both stop */ }
+      return { a: regs.get('A'), pc: regs.get('PC'), steps: cpu.stepCount, reason: cpu.haltReason };
     };
     assert.deepEqual(run(obj.program!), run(asm), ex.id);
   }

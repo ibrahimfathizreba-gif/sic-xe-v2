@@ -120,4 +120,65 @@ FIB_N   RESW    1
         END     FIB
 `,
   },
+  {
+    id: 'copy',
+    title: 'COPY from the handout (Beck Fig. 2.5)',
+    description: "Beck's SIC/XE COPY program (Fig. 2.5), the source of the handout's chapter 4 examples: LDB #LENGTH = 69202D, STCH BUFFER,X = 57C003 (base-relative), J @RETADR = 3E2003, LDA #3 = 010003, and of most decode exercises (4B101036, 290000, 75101000, A004, B440). Its object program matches Fig. 2.8. Run mode stops at the first TD, because I/O devices are not simulated.",
+    difficulty: 'Advanced',
+    tags: ['Handout', 'Base-relative', 'Format 4', 'M records', 'Indirect'],
+    expectedResult: 'Object program identical to Beck Fig. 2.8 (H^COPY  ^000000^001077, 5 T records, 3 M records)',
+    source: `COPY    START   0
+FIRST   STL     RETADR
+        LDB     #LENGTH
+        BASE    LENGTH
+CLOOP   +JSUB   RDREC
+        LDA     LENGTH
+        COMP    #0
+        JEQ     ENDFIL
+        +JSUB   WRREC
+        J       CLOOP
+ENDFIL  LDA     EOF
+        STA     BUFFER
+        LDA     #3
+        STA     LENGTH
+        +JSUB   WRREC
+        J       @RETADR
+EOF     BYTE    C'EOF'
+RETADR  RESW    1
+LENGTH  RESW    1
+BUFFER  RESB    4096
+.
+.       SUBROUTINE TO READ RECORD INTO BUFFER
+.
+RDREC   CLEAR   X
+        CLEAR   A
+        CLEAR   S
+        +LDT    #4096
+RLOOP   TD      INPUT
+        JEQ     RLOOP
+        RD      INPUT
+        COMPR   A,S
+        JEQ     EXIT
+        STCH    BUFFER,X
+        TIXR    T
+        JLT     RLOOP
+EXIT    STX     LENGTH
+        RSUB
+INPUT   BYTE    X'F1'
+.
+.       SUBROUTINE TO WRITE RECORD FROM BUFFER
+.
+WRREC   CLEAR   X
+        LDT     LENGTH
+WLOOP   TD      OUTPUT
+        JEQ     WLOOP
+        LDCH    BUFFER,X
+        WD      OUTPUT
+        TIXR    T
+        JLT     WLOOP
+        RSUB
+OUTPUT  BYTE    X'05'
+        END     FIRST
+`,
+  },
 ];

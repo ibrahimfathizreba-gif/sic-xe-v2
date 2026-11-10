@@ -59,7 +59,7 @@ Requires Node.js 20.19+ or 22.12+.
 - **Demo walkthrough**: nine steps that drive the app on their own (assembler output, object program, decoding `TIX`, a loop, going back, base-relative and format 4, decoding the handout's hex). Press Next to present.
 - **Memory tools**: ASCII column, jump to any address, copy the execution log.
 
-- **Five example programs**: sum 1..5, subroutine call, base-relative and format 4, buffer copy, Fibonacci. Each one is checked by an automatic test.
+- **Six example programs**: sum 1..5, subroutine call, base-relative and format 4, buffer copy, Fibonacci, and **Beck's COPY program (Fig. 2.5)**, the source of the handout's chapter 4 examples. Its object program is checked by a test against Beck Fig. 2.8, record by record. (COPY uses TD/RD/WD, so Run mode stops at the first device instruction; devices are not simulated.)
 
 ---
 
