@@ -7,6 +7,7 @@ import { Memory } from './sicxe/memory.ts';
 import { Registers } from './sicxe/registers.ts';
 import { SymbolEntry } from './sicxe/types.ts';
 import { hex } from './explain.ts';
+import { L, Lang, ltr } from './i18n.ts';
 
 export type Source = 'asm' | 'hex' | 'obj';
 
@@ -57,14 +58,15 @@ export function fromAssembly(src: string): Built {
 }
 
 // Raw machine code, e.g. "4B101036 290000 010003", loaded at a given address.
-export function fromHex(text: string, startText: string): Built {
+export function fromHex(text: string, startText: string, lang: Lang = 'en'): Built {
+  const T = (en: string, ar: string) => L(lang, en, ar);
   const clean = text.replace(/\s+/g, '');
   const start = parseInt(startText.trim() || '0', 16);
   const errors: LoadError[] = [];
-  if (!/^[0-9A-Fa-f]*$/.test(clean)) errors.push({ message: 'Only hex digits 0-9 and A-F are allowed (spaces are fine).' });
-  else if (!clean.length) errors.push({ message: 'Type or paste some machine code first.' });
-  else if (clean.length % 2) errors.push({ message: `Each byte needs two hex digits; you typed ${clean.length} digits.` });
-  if (!/^[0-9A-Fa-f]{1,5}$/.test(startText.trim() || '0') || isNaN(start)) errors.push({ message: 'The start address must be hex, at most 5 digits (e.g. 1000).' });
+  if (!/^[0-9A-Fa-f]*$/.test(clean)) errors.push({ message: T('Only hex digits 0-9 and A-F are allowed (spaces are fine).', `مسموح فقط بأرقام hex من ${ltr('0-9')} و ${ltr('A-F')} (والمسافات).`) });
+  else if (!clean.length) errors.push({ message: T('Type or paste some machine code first.', 'اكتب أو الصق كود آلة أولاً.') });
+  else if (clean.length % 2) errors.push({ message: T(`Each byte needs two hex digits; you typed ${clean.length} digits.`, `كل بايت يحتاج رقمين hex؛ كتبت ${ltr(clean.length)} رقماً.`) });
+  if (!/^[0-9A-Fa-f]{1,5}$/.test(startText.trim() || '0') || isNaN(start)) errors.push({ message: T('The start address must be hex, at most 5 digits (e.g. 1000).', `عنوان البداية يجب أن يكون hex من ${ltr(5)} أرقام على الأكثر (مثل ${ltr('1000')}).`) });
   if (errors.length) return { program: null, errors };
 
   const bytes = clean.match(/../g)!.map((b) => parseInt(b, 16));
@@ -80,7 +82,8 @@ export function fromHex(text: string, startText: string): Built {
 }
 
 // A Beck object program (H/T/M/E records), with or without ^ separators.
-export function fromObject(text: string): Built {
+export function fromObject(text: string, lang: Lang = 'en'): Built {
+  const T = (en: string, ar: string) => L(lang, en, ar);
   const rows = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const errors: LoadError[] = [];
   const parts = (l: string) => (l.includes('^') ? l.split('^').map((p) => p.trim()) : null);
@@ -94,15 +97,15 @@ export function fromObject(text: string): Built {
     else if (type === 'T') {
       const p = parts(l);
       const addr = p ? p[1] : l.slice(1, 7), code = p ? p[3] ?? '' : l.slice(9);
-      if (!/^[0-9A-Fa-f]{1,6}$/.test(addr ?? '')) errors.push({ line, message: 'T record: the start address must be hex.' });
-      else if (!/^([0-9A-Fa-f]{2})+$/.test(code)) errors.push({ line, message: 'T record: the object code must be pairs of hex digits.' });
+      if (!/^[0-9A-Fa-f]{1,6}$/.test(addr ?? '')) errors.push({ line, message: T('T record: the start address must be hex.', `سجل ${ltr('T')}: عنوان البداية يجب أن يكون hex.`) });
+      else if (!/^([0-9A-Fa-f]{2})+$/.test(code)) errors.push({ line, message: T('T record: the object code must be pairs of hex digits.', `سجل ${ltr('T')}: الكود يجب أن يكون أزواجاً من أرقام hex.`) });
       else ranges.push([parseInt(addr, 16), code.length / 2]);
     } else if (type === 'M') { /* relocation is not needed when loading at the assembled address */ }
-    else errors.push({ line, message: `Unknown record "${type}". Expected H, T, M or E.` });
+    else errors.push({ line, message: T(`Unknown record "${type}". Expected H, T, M or E.`, `سجل غير معروف "${ltr(type)}". المتوقع ${ltr('H')} أو ${ltr('T')} أو ${ltr('M')} أو ${ltr('E')}.`) });
   });
-  if (!header) errors.push({ message: 'Missing the H (header) record.' });
-  if (!end) errors.push({ message: 'Missing the E (end) record.' });
-  if (!ranges.length && !errors.length) errors.push({ message: 'No T (text) records, so there is nothing to load.' });
+  if (!header) errors.push({ message: T('Missing the H (header) record.', `ينقص سجل الرأس ${ltr('H')}.`) });
+  if (!end) errors.push({ message: T('Missing the E (end) record.', `ينقص سجل النهاية ${ltr('E')}.`) });
+  if (!ranges.length && !errors.length) errors.push({ message: T('No T (text) records, so there is nothing to load.', `لا توجد سجلات ${ltr('T')}، فلا يوجد شيء للتحميل.`) });
   if (errors.length) return { program: null, errors };
 
   const load = (mem: Memory, regs: Registers) => { mem.clear(); Loader.parseAndLoadText(text, mem, regs); };

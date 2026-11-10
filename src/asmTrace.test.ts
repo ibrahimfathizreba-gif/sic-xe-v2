@@ -67,15 +67,15 @@ test('handout examples are explained with the right numbers', () => {
   const tr = buildTrace(MIXED);
   const step = (text: string) => tr.steps.find((s) => s.enc && tr.result.listing[s.line!].sourceText.includes(text))!;
   // LDB #LENGTH: immediate + PC-relative
-  assert.match(step('LDB     #LENGTH').enc!.how.join(' '), /n i = 0 1/);
+  assert.match(step('LDB     #LENGTH').enc!.how.map((x) => x.t).join(' '), /n i = 0 1/);
   // STCH BUF,X: out of PC range, so base-relative
-  const stch = step('STCH').enc!.how.join(' ');
+  const stch = step('STCH').enc!.how.map((x) => x.t).join(' ');
   assert.match(stch, /outside −2048\.\.2047/);
   assert.match(stch, /b = 1, p = 0/);
   // J FIRST from further down: negative displacement in two's complement
-  assert.match(step('J       FIRST').enc!.how.join(' '), /two's complement/);
+  assert.match(step('J       FIRST').enc!.how.map((x) => x.t).join(' '), /two's complement/);
   // +JSUB FAR needs an M record
-  assert.match(step('+JSUB').enc!.how.join(' '), /M record/);
+  assert.match(step('+JSUB').enc!.how.map((x) => x.t).join(' '), /M record/);
 });
 
 test('the object program builds up to the final text', () => {
@@ -84,4 +84,22 @@ test('the object program builds up to the final text', () => {
   assert.equal(last, tr.result.objectProgram!.fullText);
   const p1End = tr.steps.findIndex((s) => s.phase === 'p1done');
   assert.equal(partialRecords(tr, p1End).length, 0, 'nothing is written during Pass 1');
+});
+
+test('Arabic explanations give the same machine code and are really in Arabic', () => {
+  for (const [id, src] of programs) {
+    const en = buildTrace(src, 'en'), ar = buildTrace(src, 'ar');
+    assert.equal(ar.steps.length, en.steps.length, id);
+    ar.steps.forEach((s, k) => {
+      assert.equal(s.enc?.hex, en.steps[k].enc?.hex, `${id} step ${k}`);
+      assert.match(s.say, /[\u0600-\u06FF]/, `${id} step ${k} should be Arabic: ${s.say}`);
+    });
+  }
+});
+
+test('every worksheet step that decides a field is coloured like that field', () => {
+  const tr = buildTrace(MIXED);
+  const tix = tr.steps.find((s) => s.enc && tr.result.listing[s.line!].sourceText.includes('STCH'))!;
+  const tones = tix.enc!.how.map((x) => x.tone).filter(Boolean);
+  for (const t of ['e', 'op', 'ni', 'x', 'disp']) assert.ok(tones.includes(t as never), t);
 });

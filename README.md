@@ -30,6 +30,8 @@ Requires Node.js 20.19+ or 22.12+.
   - **Object program**: `H`, `T`, `M` and `E` records.
   - **Errors** shown per line: duplicate labels, undefined symbols, out-of-range displacements.
 
+- **Layout**: the program stays on one side and the explanation on the other, so the line, its steps and its bits are on screen together. Two modes at the top: **1 Assemble → 2 Run**.
+- **English / Arabic**: one button switches the whole interface and every generated explanation to Arabic (right-to-left); code, hex and bits stay left-to-right. English is the default; the choice is remembered (`?lang=ar` also works).
 - **Assemble mode (step by step)**: walk through what the assembler does, with Step, Back and a timeline.
   - **Pass 1**, line by line: LOCCTR before → after and why (+3 format 3, +4 for `+`, 3 × n for RESW …), each label entering SYMTAB, forward references flagged.
   - **Pass 2**, line by line: the encoding worked out like on paper (opcode, `n i`, `x`, PC = LOC + length, `disp = TA − PC` and the range check, falling back to base-relative), then the instruction **as 0s and 1s**, field by field in colour, grouped in fours into hex.
