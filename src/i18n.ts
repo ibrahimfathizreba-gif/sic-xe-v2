@@ -27,6 +27,7 @@ export function saveLang(lang: Lang) {
 const UI = {
   assemble: ['Assemble', 'التجميع'],
   run: ['Run', 'التنفيذ'],
+  practice: ['Practice', 'تدريب'],
   example: ['Example', 'المثال'],
   ownProgram: ['Your program', 'برنامجك'],
   demo: ['Demo', 'جولة'],

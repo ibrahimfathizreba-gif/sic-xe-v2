@@ -15,6 +15,7 @@ import { AsmPanel, BitStrip, ObjCard, SymtabCard } from './AsmView.tsx';
 import { Reference } from './Reference.tsx';
 import { DEMO, DEMO_HEX, DemoAct, DemoBar, Tab } from './Demo.tsx';
 import { L, Lang, loadLang, saveLang, ui } from './i18n.ts';
+import { Practice } from './Practice.tsx';
 
 const REGS: [RegisterId, string, string][] = [
   ['A', 'Accumulator', 'المركم'], ['X', 'Index', 'الفهرسة'], ['L', 'Return address', 'عنوان الرجوع'], ['B', 'Base', 'القاعدة'],
@@ -28,7 +29,7 @@ const SOURCES: [Source, 'srcAsm' | 'srcHex' | 'srcObj'][] = [['asm', 'srcAsm'], 
 // Safety stop for Play: a program that loops forever (without a jump-to-self) halts here.
 const MAX_STEPS = 5000;
 const ascii = (b: number) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '·');
-type Mode = 'asm' | 'run';
+type Mode = 'asm' | 'run' | 'practice';
 
 export default function App() {
   const [mem] = useState(() => new Memory());
@@ -152,6 +153,8 @@ export default function App() {
 
   // The controls act on whichever mode is showing
   const asmMode = mode === 'asm' && !!trace;
+  const practice = mode === 'practice';
+  const runMode = !asmMode && !practice;
   const asmLast = trace ? trace.steps.length - 1 : 0;
   const forward = useCallback(() => {
     if (asmMode) setAt((a) => Math.min(asmLast, a + 1));
@@ -192,6 +195,7 @@ export default function App() {
       setChoice('own'); setHexSrc(DEMO_HEX); setHexAddr('0'); setEditing(null);
       p = use(fromHex(DEMO_HEX, '0', lang));
     } else p = pick(a.load);
+    if (a.practice) { setMode('practice'); setShowRef(false); return; }
     if (a.asm) {
       const want = a.asm;
       const tr = buildTrace(EXAMPLES.find((x) => x.id === a.load)!.source, lang);
@@ -229,14 +233,14 @@ export default function App() {
       const tg = e.target;
       if (tg instanceof HTMLTextAreaElement || tg instanceof HTMLInputElement || tg instanceof HTMLSelectElement) return;
       if (e.key === '?') { e.preventDefault(); setShowRef((v) => !v); return; }
-      if (showRef) return;
+      if (showRef || practice) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); forward(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); backward(); }
       else if (e.key === ' ' && !(tg instanceof HTMLButtonElement)) { e.preventDefault(); setRunning((r) => !r); }
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [forward, backward, showRef]);
+  }, [forward, backward, showRef, practice]);
 
   const ok = !!prog;
   const pc = reg.PC;
@@ -386,7 +390,9 @@ export default function App() {
         <div className="modes" role="tablist" aria-label={t('modeLabel')}>
           <button role="tab" aria-selected={asmMode} className={asmMode ? 'on' : ''} disabled={!trace} onClick={() => setMode('asm')} title={trace ? '' : t('asmOnly')}><b>1</b> {t('assemble')}</button>
           <span className="arrowsep" aria-hidden="true">{lang === 'ar' ? '←' : '→'}</span>
-          <button role="tab" aria-selected={!asmMode} className={!asmMode ? 'on' : ''} disabled={!ok} onClick={() => setMode('run')}><b>2</b> {t('run')}</button>
+          <button role="tab" aria-selected={runMode} className={runMode ? 'on' : ''} disabled={!ok} onClick={() => setMode('run')}><b>2</b> {t('run')}</button>
+          <span className="arrowsep" aria-hidden="true">·</span>
+          <button role="tab" aria-selected={practice} className={practice ? 'on' : ''} onClick={() => setMode('practice')}><b>3</b> {t('practice')}</button>
         </div>
         <div className="tools">
           <label className="pick">
@@ -404,7 +410,7 @@ export default function App() {
 
       {demo !== null && <DemoBar at={demo} go={goDemo} close={() => setDemo(null)} lang={lang} />}
 
-      <main className="work" id="work">
+      {practice ? <main id="work"><Practice lang={lang} /></main> : <main className="work" id="work">
         <div className="area-code">{programCard}</div>
         <div className="area-now">{nowCard}</div>
 
@@ -516,9 +522,9 @@ export default function App() {
             </>
           )}
         </div>
-      </main>
+      </main>}
 
-      <div className="dock" role="toolbar" aria-label={t('controls')} dir="ltr">
+      {!practice && <div className="dock" role="toolbar" aria-label={t('controls')} dir="ltr">
         <button className="btn" onClick={backward} disabled={!ok || (asmMode ? at === 0 : steps === 0)} title={`${t('back')} (←)`}><StepBack size={18} /><span>{t('back')}</span></button>
         <button className="btn pri" onClick={forward} title={`${t('step')} (→)`} disabled={!ok || atEnd}><StepForward size={18} /><span>{t('step')}</span></button>
         <button className="btn" onClick={() => setRunning((r) => !r)} disabled={!ok || atEnd}>
@@ -528,7 +534,7 @@ export default function App() {
         <div className="speed" role="group" aria-label={t('speed')}>
           {SPEEDS.map((s) => <button key={s.k} aria-pressed={speed === s.ms} className={speed === s.ms ? 'on' : ''} onClick={() => setSpeed(s.ms)}>{t(s.k)}</button>)}
         </div>
-      </div>
+      </div>}
 
       {showRef && <Reference onClose={() => setShowRef(false)} lang={lang} />}
     </div>

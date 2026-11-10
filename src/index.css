@@ -236,3 +236,47 @@ html[dir="rtl"] .how li{padding:8px 44px 8px 12px}
 tr.off td{color:var(--mute)}
 .find{width:220px}
 @media(max-width:700px){.two{grid-template-columns:minmax(0,1fr)}.fmt{grid-template-columns:minmax(0,1fr)}.sheet{padding:18px}}
+
+/* ---------- Practice: encode / decode by hand ---------- */
+.practice{display:flex;flex-direction:column;gap:16px}
+.pr-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+.pr-head .seg{margin:0}
+.score{font-size:14px;font-weight:700;color:var(--mute)}.score b{color:var(--ok);font:800 18px var(--mono);margin-inline-start:6px}
+.topics{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.topic{border:1px solid var(--line);background:var(--card2);color:var(--mute);font:600 13px var(--sans);padding:0 12px;min-height:40px;border-radius:999px;cursor:pointer}
+.topic.on{border-color:var(--acc);color:var(--ink);background:var(--acc-s)}
+.pr-grid{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);gap:16px;align-items:start}
+.pr-side{display:flex;flex-direction:column;gap:16px;position:sticky;top:12px}
+@media(max-width:960px){.pr-grid{grid-template-columns:minmax(0,1fr)}.pr-side{position:static}}
+.question .big{font-size:clamp(28px,4vw,40px);color:var(--amb)}
+.givens{list-style:none;padding:0;margin:0 0 16px;display:flex;flex-wrap:wrap;gap:8px}
+.givens li{background:var(--card2);border:1px solid var(--line);border-radius:6px;padding:8px 12px;font-size:14px;color:#c9d7ec}
+.givens b{font-family:var(--mono);color:var(--ink)}
+ol.form{list-style:none;counter-reset:f;margin:0 0 12px;padding:0;display:flex;flex-direction:column;gap:8px}
+ol.form li{counter-increment:f;position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 12px 8px 44px;border-radius:6px;background:var(--card2);border-inline-start:4px solid var(--t,var(--line))}
+html[dir="rtl"] ol.form li{padding:8px 44px 8px 12px}
+ol.form li::before{content:counter(f);position:absolute;inset-inline-start:10px;top:16px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font:800 12px var(--mono);background:var(--t,var(--line));color:#04111f}
+ol.form li.plain{--t:#3b5578}ol.form li.plain::before{color:var(--ink)}
+ol.form label{display:inline-flex;align-items:center;gap:10px;font-size:14px;font-weight:600;color:#c9d7ec}
+ol.form input{font:600 16px var(--mono);background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:5px;padding:0 10px;min-height:44px;width:150px;text-transform:uppercase}
+ol.form input.short{width:64px}
+.q{font-size:14px;font-weight:700;color:#c9d7ec;min-width:120px}
+.seg.small{margin:0}.seg.small button{min-width:44px;min-height:40px;font-family:var(--mono);font-size:15px}
+.bits2{display:flex;gap:10px}
+.bitpick{display:flex;align-items:center;gap:6px}
+.bitpick>span{font:800 15px var(--mono);color:var(--t)}
+.bitpick div{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.bitpick button{border:0;background:var(--card);color:var(--mute);font:700 16px var(--mono);width:44px;min-height:44px;cursor:pointer}
+.bitpick button.on{background:var(--t);color:#04111f}
+.verdict{display:inline-flex;align-items:flex-start;gap:6px;font-size:14px;line-height:1.5;font-weight:600;flex:1 1 260px}
+.verdict svg{flex:none;margin-top:3px}
+.verdict.good{color:var(--ok)}.verdict.bad{color:#fca5a5}
+.result{margin:6px 0 12px;padding:10px 14px;border-radius:6px;font-weight:700}
+.result.good{background:var(--ok-s);color:#a7f3d0}.result.bad{background:var(--bad-s);color:#fca5a5}
+.pr-actions{display:flex;flex-wrap:wrap;gap:8px}
+.tally{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.tally li{display:flex;justify-content:space-between;gap:10px;background:var(--card2);border-radius:6px;padding:8px 12px;font-size:14px}
+.tally b{color:var(--bad);font-family:var(--mono)}
+@media(max-width:560px){.pr-actions .btn span{display:inline}.q{min-width:0;flex-basis:100%}}
+.pr-head .seg{flex-wrap:wrap;width:auto}
+ol.form input::placeholder{color:#3d5070;font-weight:400}

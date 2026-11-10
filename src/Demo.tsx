@@ -13,6 +13,7 @@ export interface DemoAct {
   tab?: Tab;
   sel?: number; // instruction address to open in the decoder
   reference?: boolean;
+  practice?: boolean; // open the Practice mode
 }
 export interface DemoStep { title: [string, string]; say: [string, string]; act: DemoAct }
 
@@ -90,6 +91,14 @@ export const DEMO: DemoStep[] = [
       `الاتجاه المعاكس: أسئلة فك الترميز من المذكّرة، محمّلة كـ hex مباشر. ${c('4B101036')} هي ${c('+JSUB 01036')}، و${c('290000')} هي ${c('COMP #0')}، و${c('A004')} هي ${c('COMPR A,S')}. اضغط أي سطر لترى بتاته.`,
     ],
     act: { load: 'hex', steps: 0, sel: 0x0000 },
+  },
+  {
+    title: ['Now you do it: Practice', 'دورك: التدريب'],
+    say: [
+      'Practice turns Pass 2 into exam questions. Pick the format, set n i x b p e, compute disp and write the hex; each field is checked on its own and a wrong answer is named (for example "PC is the address of the NEXT instruction"). Every question is assembled by the project\'s own assembler, so the answer key is always right.',
+      `وضع التدريب يحوّل ${c('Pass 2')} إلى أسئلة امتحان. اختر الـ format، واضبط ${c('n i x b p e')}، واحسب الـ ${c('disp')}، واكتب الـ hex؛ كل حقل يُصحَّح وحده، والخطأ يُسمّى باسمه (مثلاً "${c('PC')} هو عنوان التعليمة التالية"). وكل سؤال يجمّعه مجمّع المشروع نفسه، فالإجابة النموذجية صحيحة دائماً.`,
+    ],
+    act: { load: 'sum1to5', practice: true },
   },
   {
     title: ['Reference sheet', 'ورقة المرجع'],

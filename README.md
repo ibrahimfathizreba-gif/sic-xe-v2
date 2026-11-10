@@ -38,6 +38,12 @@ Requires Node.js 20.19+ or 22.12+.
   - The **object program** builds up as Pass 2 writes it (H, T, M, E records).
   - Every explanation is checked by a test to produce exactly the hex the assembler produced.
 
+- **Practice mode (Pass 2 by hand)**: exam-style questions in eight topics (PC-relative, negative disp, base-relative, immediate, indirect, indexed, format 4, format 2).
+  - **Encode**: given an instruction, its address and the symbol addresses, enter the format, `n i x b p e`, the disp or address, and the hex.
+  - **Decode**: given hex, find the instruction, its format, its bits and its disp.
+  - Each field is checked on its own and a wrong answer is named (e.g. "PC is the address of the NEXT instruction", "negative disp needs two's complement", "PC-relative does not fit, use B"). A running tally shows which rules to revise. The worked solution shows the same steps and bits as Assemble mode.
+  - Every question is written as a small program and assembled by the project's own assembler, so the answer key is always what the assembler produces (checked by tests on hundreds of generated questions).
+
 - **CPU simulator**
   - 1 MB byte-addressable memory, 24-bit big-endian words; registers `A X L B S T PC SW`.
   - Fetch → decode → execute, with the `n i x b p e` bits and the target-address formula shown for every instruction.
@@ -118,6 +124,7 @@ npm test
 - `src/sicxe/sicxe.test.ts`: single-instruction encodings, assembler output and the CPU trace for `sum1to5`.
 - `src/sicxe/examples.test.ts`: runs every example to completion and checks its result; checks that faults halt the CPU without moving PC.
 - `src/asmTrace.test.ts`: the step-by-step explanation gives the same hex as the assembler for every line (all examples plus a program covering negative displacements, base-relative, format 4, indirect, format 1 and 2, BYTE and WORD); LOCCTR and SYMTAB match Pass 1.
+- `src/practice.test.ts`: generated questions in every topic assemble correctly, really test their topic, decode back to the same instruction, accept the right answer and name the usual mistakes.
 - `src/program.test.ts`: raw-hex and object-program loading, including the handout decode exercises (`4B101036` → `+JSUB 01036`, …).
 
 The same checks run on every push through GitHub Actions (`.github/workflows/ci.yml`), which also publishes the site to GitHub Pages.
