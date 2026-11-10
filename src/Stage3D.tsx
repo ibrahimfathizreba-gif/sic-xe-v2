@@ -3,14 +3,14 @@ import { Memory } from './sicxe/memory.ts';
 import { MemoryChange, RegisterChange, RegisterId, StepResult } from './sicxe/types.ts';
 import { toSigned24 } from './sicxe/registers.ts';
 import { hex } from './explain.ts';
+import { rowIndex, rowRanges } from './memRows.ts';
 
 interface Props {
   reg: Record<RegisterId, number>;
   chRegs: RegisterChange[];
   chMem: MemoryChange[];
   mem: Memory;
-  base: number;
-  rows: number;
+  rowAddrs: number[]; // start address of each 16-byte memory row on the board
   pc: number;
   halted: boolean;
   last: StepResult | null;
@@ -61,11 +61,12 @@ function Flat({ a, b, cls, delay, color, y }: { a: Pt; b: Pt; cls: string; delay
   return <div className={cls} style={st} />;
 }
 
-export function Stage3D({ reg, chRegs, chMem, mem, base, rows, pc, halted, last, steps }: Props) {
+export function Stage3D({ reg, chRegs, chMem, mem, rowAddrs, pc, halted, last, steps }: Props) {
   const START = { x: -45, y: -18 };
   const [rot, setRot] = useState(START);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  const win = Math.min(rows, 8) * 16;
+  const win = rowAddrs.length * 16;
+  const rowsKey = rowAddrs.join(',');
 
   // The logical data path of the last executed instruction, as lightning pieces along the traces
   const plan = useMemo(() => {
@@ -75,7 +76,8 @@ export function Stage3D({ reg, chRegs, chMem, mem, base, rows, pc, halted, last,
     if (last) {
       const d = last.instruction, m = d.mnemonic.replace('+', '');
       const N = (id?: string) => NODES[id ?? 'A'] ?? NODES.A;
-      const cell = (a: number): Pt => cellAt(Math.max(0, Math.min(win - 1, a - base)));
+      // Address not on the board (should not happen: App always adds the rows it needs) -> stop at the chip edge
+      const cell = (a: number): Pt => { const i = rowIndex(rowAddrs, a); return i === null ? [CHIPX, -92] : cellAt(i); };
       const S = (pts: Pt[], color: string, from?: string, to?: string) => stages.push({ pts, color, ids: [from, to] });
       const cy = '#38bdf8', am = '#fbbf24', gr = '#34d399';
       const alu = /^(ADD|SUB|MUL|DIV|AND|OR|COMP|TIX|ADDR|SUBR|MULR|DIVR|COMPR|TIXR|SHIFTL|SHIFTR)$/.test(m);
@@ -124,7 +126,7 @@ export function Stage3D({ reg, chRegs, chMem, mem, base, rows, pc, halted, last,
     }
     return { pieces, hits };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [last, steps, win, base]);
+  }, [last, steps, rowsKey]);
 
   const fmt = (id: string) => {
     if (id === 'IR') return last ? last.instruction.disassembly : '—';
@@ -148,6 +150,7 @@ export function Stage3D({ reg, chRegs, chMem, mem, base, rows, pc, halted, last,
       onPointerUp={() => { drag.current = null; }}
     >
       <span className="hint stagehint">Drag to rotate · cyan = fetch · amber = execute · green = store</span>
+      <span className="hint stagemem">Memory on board: {rowRanges(rowAddrs, hex)}</span>
       <button className="link stagereset" onPointerDown={(e) => e.stopPropagation()} onClick={() => setRot(START)}>Reset view</button>
       <div className="scene" style={{ transform: `scale(${s}) rotateX(${rot.x}deg) rotateY(${rot.y}deg)` }}>
         <div className="floor" />
@@ -160,7 +163,7 @@ export function Stage3D({ reg, chRegs, chMem, mem, base, rows, pc, halted, last,
               cls={chRegs.some((c) => c.reg === id) && id !== 'PC' ? 'hot' : ''} hit={plan.hits[id]} />
           ))}
           {Array.from({ length: win }, (_, n) => {
-            const a = base + n, [cx, cz] = cellAt(n), v = mem.getByte(a);
+            const a = rowAddrs[Math.floor(n / 16)] + (n % 16), [cx, cz] = cellAt(n), v = mem.getByte(a);
             const isPc = a === pc && !halted, ch = chMem.some((m) => a >= m.address && a < m.address + m.newBytes.length);
             return <Slab key={a} x={cx} z={cz} w={12} d={12} h={3 + (v / 255) * 8} lift={5} c={isPc ? '#38bdf8' : ch ? '#34d399' : `hsl(215 55% ${18 + (v / 255) * 34}%)`} cls={isPc || ch ? 'lit' : ''} />;
           })}

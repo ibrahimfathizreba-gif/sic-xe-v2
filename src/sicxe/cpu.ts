@@ -33,8 +33,20 @@ export class CPU {
     if (this.halted) {
       throw new Error(`CPU is already halted: ${this.haltReason}`);
     }
-
     const pcBefore = this.registers.get('PC');
+    try {
+      return this.execute(pcBefore);
+    } catch (e) {
+      // A faulting instruction must not leave the machine half-advanced:
+      // put PC back on the instruction that failed and stop with the reason.
+      this.registers.set('PC', pcBefore);
+      this.halted = true;
+      this.haltReason = e instanceof Error ? e.message : String(e);
+      throw e;
+    }
+  }
+
+  private execute(pcBefore: number): StepResult {
 
     // Bounds check
     if (pcBefore < 0 || pcBefore >= this.memory.size) {

@@ -1,33 +1,46 @@
-# SIC/XE Studio & CPU Simulator
+# SIC/XE Lab
 
-A modern aesthetic two-pass assembler and cycle-accurate visual CPU architecture simulator for Leland Beck's **SIC/XE** (*Simplified Instructional Computer, Extra Equipment*), implemented in TypeScript and React.
+[![CI](https://github.com/ibrahimfathizreba-gif/sic-xe-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/ibrahimfathizreba-gif/sic-xe-v2/actions/workflows/ci.yml)
+
+A two-pass assembler and step-by-step visual simulator for Leland Beck's **SIC/XE** machine (*System Software*), built with TypeScript and React. Runs entirely in the browser.
+
+**Live:** https://ibrahimfathizreba-gif.github.io/sic-xe-v2/
+
+---
+
+## Quick start
+
+```bash
+npm ci          # install exactly the locked dependencies
+npm run dev     # open http://localhost:3000
+npm test        # engine tests (assembler, CPU, all examples)
+npm run lint    # type-check
+npm run build   # production build in dist/
+```
+
+Requires Node.js 20.19+ or 22.12+.
 
 ---
 
 ## 1. Features
 
-- **Two-Pass Assembler**:
-  - **Pass 1**: Analyzes statements, calculates `LOCCTR`, identifies instruction formats (1, 2, 3, 4), directives (`START`, `END`, `BYTE`, `WORD`, `RESB`, `RESW`, `BASE`, `NOBASE`), and builds the Symbol Table.
-  - **Pass 2**: Emits machine code according to Beck's rules. Automatically selects PC-relative displacement (`-2048..2047`) or Base-relative displacement (`0..4095`) when `BASE` is active, or alerts when Format 4 (`+`) is required.
-  - **Beck Object Program**: Generates standard Header (`H`), Text (`T`), Modification (`M`), and End (`E`) records with `^` separators.
-  - **Comprehensive Diagnostic Reporting**: Line-numbered syntax error markers, duplicate labels, undefined symbols, out-of-range displacements.
+- **Two-pass assembler**
+  - **Pass 1**: computes `LOCCTR`, identifies formats 1–4 and the directives `START`, `END`, `BYTE`, `WORD`, `RESB`, `RESW`, `BASE`, `NOBASE`, and builds the symbol table.
+  - **Pass 2**: emits machine code following Beck's rules: PC-relative first (`-2048..2047`), base-relative when `BASE` is active (`0..4095`), otherwise asks for format 4 (`+`).
+  - **Object program**: `H`, `T`, `M` and `E` records.
+  - **Errors** shown per line: duplicate labels, undefined symbols, out-of-range displacements.
 
-- **Cycle-Accurate CPU Simulator**:
-  - **1 MB Byte-Addressable Memory** (`0x00000`–`0xFFFFF`), 24-bit big-endian words.
-  - **Register Bank**: `A` (Accumulator), `X` (Index), `L` (Linkage), `B` (Base), `S` (General), `T` (General), `PC` (Program Counter), `SW` (Status Word).
-  - **Condition Code (CC)**: `LT` (00), `EQ` (01), `GT` (10) mapped to lowest 2 bits of `SW`.
-  - **Fetch → Decode → Execute Cycle**:
-    - Dissects raw machine bytes into `op(6)`, `n`, `i`, `x`, `b`, `p`, `e`, displacement/address, `r1`, `r2`.
-    - Computes Target Address (`TA`) dynamically and shows the mathematical formula in real time.
-    - Resolves Immediate (`#`), Simple, Indirect (`@`), and Standard SIC modes.
-  - **Real-Time Highlight Tracking**: Glowing pulses on registers and memory addresses modified by the latest instruction.
-  - **Execution Control**: Step, continuous Run with configurable speed slider (20ms to 600ms), Pause, Reset, and Breakpoints.
+- **CPU simulator**
+  - 1 MB byte-addressable memory, 24-bit big-endian words; registers `A X L B S T PC SW`.
+  - Fetch → decode → execute, with the `n i x b p e` bits and the target-address formula shown for every instruction.
+  - A plain-English sentence explaining what each instruction will do.
+  - **Step, Back, Play/Pause, Reset** and a **timeline** to travel to any earlier step (keyboard: `→`, `←`, `Space`).
+  - **Breakpoints**: click the dot next to a line in the listing.
+  - A faulting instruction (division by zero, illegal immediate store, unsupported opcode) stops the machine with the reason, and PC stays on the instruction that failed.
 
-- **Direct Machine Code / Hex Loader**:
-  - Directly load raw hex strings (e.g. `05000101000090102F20093B2FF8...`) or paste Beck object programs without needing assembly source.
+- **3D machine view**: CPU blocks, registers and memory on a board. Light pulses follow the real data path of the last instruction (cyan = fetch, amber = execute, green = store). Memory rows far from the program (for example a buffer after `RESB 3000`) are brought onto the board when an instruction uses them.
 
-- **Interactive 7–10 Minute Demo Walkthrough**:
-  - Guided interactive modal showcasing `sum1to5.asm`, symbol resolution, bitfield decoding of `TIX LIMIT`, step-by-step loop execution, and result verification (`RESULT = 15`).
+- **Five example programs**: sum 1..5, subroutine call, base-relative and format 4, buffer copy, Fibonacci. Each one is checked by an automatic test.
 
 ---
 
@@ -44,7 +57,7 @@ Where Leland Beck's *System Software* specification was silent or allowed implem
 2. **Halt Detection**:
    - Normal completion: An unconditional jump `J` to its own address (`HALT J HALT`). The simulator terminates with reason `"Jump to self (normal termination)"`.
    - Out-of-bounds: When PC moves outside the loaded program bounds or outside the 1 MB memory space.
-   - Max step threshold: Default 100,000 steps to catch infinite loops.
+   - Max step threshold: Play stops after 5,000 steps (100,000 for `CPU.run()`) to catch infinite loops.
    - Step count for `sum1to5.asm`: 19 instructions (LDX, LDA, 5 iterations of ADDR/TIX/JLT = 15, STA, plus the final halting J = 19).
 
 3. **Format 3 Displacement Selection Precedence**:
@@ -83,10 +96,13 @@ Where Leland Beck's *System Software* specification was silent or allowed implem
 
 ---
 
-## 4. Running the Tests
-
-To run the unit test suite verifying single-instruction encodings (Section 11.4), assembler output (Section 11.1), and CPU execution trace (Section 11.2 & 11.3):
+## 4. Tests
 
 ```bash
-npx --yes tsx --test src/sicxe/sicxe.test.ts
+npm test
 ```
+
+- `src/sicxe/sicxe.test.ts`: single-instruction encodings, assembler output and the CPU trace for `sum1to5`.
+- `src/sicxe/examples.test.ts`: runs every example to completion and checks its result; checks that faults halt the CPU without moving PC.
+
+The same checks run on every push through GitHub Actions (`.github/workflows/ci.yml`), which also publishes the site to GitHub Pages.

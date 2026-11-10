@@ -10,6 +10,7 @@ import { EXAMPLES, ExampleProgram } from './sicxe/examples.ts';
 import { AssemblerResult, ConditionCode, DecodedInstruction, RegisterId, StepResult } from './sicxe/types.ts';
 import { explain, hex } from './explain.ts';
 import { Stage3D } from './Stage3D.tsx';
+import { memRows } from './memRows.ts';
 
 const REGS: [RegisterId, string][] = [
   ['A', 'Accumulator'], ['X', 'Index'], ['L', 'Return address'], ['B', 'Base'],
@@ -19,6 +20,8 @@ const CC: Record<ConditionCode, string> = { LT: 'Less than', EQ: 'Equal', GT: 'G
 const FLAGS = [['n', 'Indirect'], ['i', 'Immediate'], ['x', 'Indexed'], ['b', 'Base'], ['p', 'PC-rel'], ['e', 'Extended']] as const;
 const SPEEDS = [{ l: 'Slow', ms: 900 }, { l: 'Normal', ms: 350 }, { l: 'Fast', ms: 80 }];
 const ZERO: Record<RegisterId, number> = { A: 0, X: 0, L: 0, B: 0, S: 0, T: 0, F: 0, PC: 0, SW: 1 };
+// Safety stop for Play: a program that loops forever (without a jump-to-self) halts here.
+const MAX_STEPS = 5000;
 
 export default function App() {
   const [mem] = useState(() => new Memory());
@@ -73,6 +76,13 @@ export default function App() {
   const step = useCallback(() => {
     const c = cpu.current!;
     if (c.halted) return;
+    if (c.stepCount >= MAX_STEPS) {
+      c.halted = true;
+      c.haltReason = `Stopped after ${MAX_STEPS} steps. The program may be stuck in an endless loop.`;
+      setRunning(false);
+      sync();
+      return;
+    }
     try {
       const r = c.step();
       setLast(r);
@@ -80,11 +90,10 @@ export default function App() {
       sync();
       setMax((m) => Math.max(m, c.stepCount));
       if (bp.has(regs.get('PC'))) { setRunning(false); setTrace((t) => [...t, `[Breakpoint] paused at 0x${hex(regs.get('PC'))}`]); }
-    } catch (e) {
+    } catch {
+      // The CPU has already stopped itself, rewound PC and stored the reason.
       setRunning(false);
       sync();
-      setHalted(true);
-      setReason(e instanceof Error ? e.message : String(e));
     }
   }, [sync, bp, regs]);
 
@@ -133,7 +142,16 @@ export default function App() {
   const chMem = last?.memoryChanges ?? [];
   const memStart = asm?.startAddress ?? 0;
   const base = Math.floor(memStart / 16) * 16;
-  const rows = asm ? Math.min(Math.ceil((asm.programLength + memStart - base) / 16), 12) : 0;
+  const progRows = asm?.success ? Math.ceil((asm.programLength + memStart - base) / 16) : 0;
+  // Rows that must be visible: the instruction that ran, the next one, and any memory it read or wrote
+  const focus = progRows ? [
+    last?.pcBefore,
+    halted ? undefined : pc,
+    ...chMem.map((m) => m.address),
+    last && last.instruction.format >= 3 && last.instruction.addressingMode !== 'immediate' ? last.instruction.targetAddress : undefined,
+  ] : [];
+  const boardRows = memRows(base, progRows, 8, focus);
+  const tableRows = memRows(base, progRows, 12, focus);
   const toggleBp = (loc: number) => setBp((b) => { const n = new Set(b); if (n.has(loc)) n.delete(loc); else n.add(loc); return n; });
   const shown = (() => { if (sel === null) return cur; try { return Decoder.decode(sel, mem, regs); } catch { return null; } })();
   const fmt34 = shown && (shown.format === 3 || shown.format === 4);
@@ -159,7 +177,7 @@ export default function App() {
           </>
         ) : halted ? (
           <>
-            <p className="label">Finished after {steps} steps</p>
+            <p className="label">{reason.includes('normal termination') ? 'Finished' : 'Stopped'} after {steps} steps</p>
             <p className="big">A = {toSigned24(reg.A)}</p>
             <p className="say">{reason || 'The program stopped.'}</p>
           </>
@@ -187,7 +205,7 @@ export default function App() {
 
       <section className="card" style={{ marginBottom: 16 }}>
         <h2>3D machine view</h2>
-        <Stage3D reg={reg} chRegs={chRegs} chMem={chMem} mem={mem} base={base} rows={rows} pc={pc} halted={halted} last={last} steps={steps} />
+        <Stage3D reg={reg} chRegs={chRegs} chMem={chMem} mem={mem} rowAddrs={boardRows} pc={pc} halted={halted} last={last} steps={steps} />
       </section>
 
       <main className="grid">
@@ -265,11 +283,11 @@ export default function App() {
           </div>
           {tab === 'mem' && (
             <div className="mwrap">
-              {Array.from({ length: rows }, (_, r) => (
-                <div key={r} className="mrow">
-                  <span className="ma">{hex(base + r * 16, 5)}</span>
+              {tableRows.map((row, r) => (
+                <div key={row} className={'mrow' + (r > 0 && tableRows[r - 1] + 16 !== row ? ' gap' : '')}>
+                  <span className="ma">{hex(row, 5)}</span>
                   {Array.from({ length: 16 }, (_, i) => {
-                    const a = base + r * 16 + i;
+                    const a = row + i;
                     const ch = chMem.some((m) => a >= m.address && a < m.address + m.newBytes.length);
                     return <span key={a + (ch ? 'c' + steps : '')} title={'0x' + hex(a)} className={'b' + (ch ? ' ch' : '') + (a === pc && !halted ? ' pc' : '')}>{hex(mem.getByte(a), 2)}</span>;
                   })}

@@ -40,7 +40,7 @@ RESULT  RESW    1
     description: 'Demonstrates modular programming with JSUB and RSUB. The subroutine DOUBL doubles register A using ADDR, saving and restoring linkage via register L.',
     difficulty: 'Intermediate',
     tags: ['Subroutine', 'JSUB', 'RSUB', 'ADDR'],
-    expectedResult: 'A = 24 (0x000018) after doubling 12 twice, stored in RES',
+    expectedResult: 'A = 24 (0x000018) after doubling 6 twice, stored in RES',
     source: `SUBPRG  START   1000
         LDA     #6
         JSUB    DOUBL
