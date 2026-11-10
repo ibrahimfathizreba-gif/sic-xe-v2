@@ -7,7 +7,8 @@ export type Tab = 'mem' | 'sym' | 'obj' | 'log';
 // so the presenter can jump to any step in any order.
 export interface DemoAct {
   load: string; // example id, or 'hex' for the handout decode exercises
-  steps: number; // how many instructions to have executed
+  asm?: { phase: 'start' | 'p1' | 'p1done' | 'p2' | 'done'; text?: string }; // show this assembler step
+  steps?: number; // otherwise: Run mode, with this many instructions executed
   tab?: Tab;
   sel?: number; // instruction address to open in the decoder
   reference?: boolean;
@@ -18,23 +19,33 @@ export const DEMO_HEX = '4B101036 290000 010003 75101000 A004 B440';
 
 export const DEMO: DemoStep[] = [
   {
-    title: 'The assembler output',
-    say: 'Pass 1 gave every line an address and filled the symbol table: LOOP = 0006, LIMIT = 0014, RESULT = 0017. Pass 2 produced the object code next to each line.',
-    act: { load: 'sum1to5', steps: 0, tab: 'sym' },
+    title: 'Pass 1: addresses and labels',
+    say: 'Pass 1 walks through the source and gives every line an address with LOCCTR (+3 for format 3, +2 for format 2 …). Each label goes into SYMTAB. Here TIX uses LIMIT before LIMIT is defined: a forward reference, the reason an assembler needs two passes.',
+    act: { load: 'sum1to5', asm: { phase: 'p1', text: 'TIX' } },
+  },
+  {
+    title: 'Pass 2: from assembly to 0s and 1s',
+    say: 'Pass 2 builds each instruction from its fields: 6 bits of opcode, the n i x b p e flags and a 12-bit displacement. TIX LIMIT becomes 001011 1 1 0 0 1 0 000000001001, and in hex 2F2009.',
+    act: { load: 'sum1to5', asm: { phase: 'p2', text: 'TIX' } },
+  },
+  {
+    title: 'A negative displacement',
+    say: 'JLT LOOP jumps backwards: disp = 0006 − 000E = −8. A negative disp is stored in 12-bit two\'s complement, FF8, giving 3B2FF8.',
+    act: { load: 'sum1to5', asm: { phase: 'p2', text: 'JLT' } },
   },
   {
     title: 'The object program',
-    say: 'Pass 2 also wrote the H, T and E records. The program is 1A bytes long and starts executing at 000000. This text is what a loader reads.',
-    act: { load: 'sum1to5', steps: 0, tab: 'obj' },
+    say: 'While Pass 2 works it writes the object program: an H record, T records with the code, and an E record with the first instruction. This text is what the loader reads.',
+    act: { load: 'sum1to5', asm: { phase: 'done' } },
   },
   {
-    title: 'Decode one instruction by hand',
-    say: 'TIX LIMIT at 0008 is 2F2009. Opcode 2C with n = i = 1 gives 2F. PC = 0008 + 3 = 000B, so disp = 0014 − 000B = 009 and p = 1.',
-    act: { load: 'sum1to5', steps: 0, sel: 0x0008 },
+    title: 'Base-relative addressing',
+    say: 'BUFFER is about 3000 bytes away. PC-relative would need a displacement outside −2048..2047, so the assembler uses the BASE directive: disp = TA − B, with b = 1.',
+    act: { load: 'base_format4', asm: { phase: 'p2', text: 'STCH' } },
   },
   {
-    title: 'First loop iteration',
-    say: 'LDX #1, LDA #0, then ADDR X,A makes A = 1. TIX adds 1 to X (X = 2) and compares it with 6, so CC = LT and JLT jumps back to LOOP. The pulses on the board follow each instruction.',
+    title: 'Run it: first loop iteration',
+    say: 'The loader puts the bytes in memory and the CPU runs them. ADDR X,A makes A = 1, TIX makes X = 2 and compares it with 6, so CC = LT and JLT jumps back to LOOP.',
     act: { load: 'sum1to5', steps: 5, tab: 'log' },
   },
   {
@@ -48,13 +59,8 @@ export const DEMO: DemoStep[] = [
     act: { load: 'sum1to5', steps: 19, tab: 'mem' },
   },
   {
-    title: 'Base-relative and format 4',
-    say: '+LDB and +LDT are 4-byte instructions. BUFFER is about 3000 bytes away, out of PC-relative range (−2048..2047), so STCH uses B: TA = B + disp. The board brings that far memory row into view.',
-    act: { load: 'base_format4', steps: 5, sel: 0x000d, tab: 'mem' },
-  },
-  {
     title: 'Decode machine code',
-    say: 'The decode exercises from the handout, loaded as raw hex: 4B101036 is +JSUB 01036, 290000 is COMP #0, A004 is COMPR A,S. Click any line to see its bits.',
+    say: 'The other direction: the decode exercises from the handout, loaded as raw hex. 4B101036 is +JSUB 01036, 290000 is COMP #0, A004 is COMPR A,S. Click any line to see its bits.',
     act: { load: 'hex', steps: 0, sel: 0x0000 },
   },
   {

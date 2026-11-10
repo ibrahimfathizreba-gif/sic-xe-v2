@@ -157,3 +157,48 @@ textarea.ed.short{min-height:150px}
 tr.off td{color:var(--mute)}
 .find{width:220px}
 @media(max-width:700px){.two{grid-template-columns:minmax(0,1fr)}.fmt{grid-template-columns:minmax(0,1fr)}.sheet{padding:18px}}
+
+/* Mode switch: 1 Assemble · 2 Run */
+.modes{display:flex;gap:2px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:3px}
+.modes button{border:0;background:none;color:var(--mute);font-weight:700;font-size:14px;padding:8px 14px;border-radius:4px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+.modes button b{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--line);color:var(--ink);font-size:12px}
+.modes button.on{background:var(--acc);color:#04111f}.modes button.on b{background:#04111f;color:var(--acc)}
+.modes button:disabled{opacity:.4;cursor:not-allowed}
+
+/* Assembler card */
+.flow{display:flex;flex-wrap:wrap;gap:6px;list-style:none;padding:0;margin:0 0 18px}
+.flow li{font-size:12px;font-weight:700;padding:6px 10px;border-radius:20px;border:1px solid var(--line);color:var(--mute)}
+.flow li::after{content:''}
+.flow li.past{color:var(--ok);border-color:#1d5a4a}
+.flow li.on{background:var(--acc);border-color:var(--acc);color:#04111f}
+.locctr{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 18px;background:var(--card2);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+.locctr .label{margin:0}
+.big2{font:700 34px var(--mono);color:#fff}.big2 .arrow{color:var(--acc)}
+.rule{font-size:16px;color:#c9d7ec}
+.note{margin:12px 0 0;padding:10px 14px;border-radius:var(--r);font-size:15px}
+.note.ok{background:var(--ok-s);color:#a7f3d0}.note.warn{background:#3a2c0b;color:#fde68a}
+.how{margin:0 0 18px;padding-left:22px;line-height:1.7;color:#c9d7ec;font-size:15px;columns:2 420px;column-gap:36px}
+.how li{break-inside:avoid;margin-bottom:4px}
+.done{display:flex;flex-direction:column;gap:16px;align-items:flex-start}
+
+/* The instruction as bits */
+.bitstrip{margin-bottom:14px;overflow-x:auto}
+.bs-fields,.bs-nib{display:flex;gap:3px;min-width:560px}
+.bs-f{flex-basis:0;display:flex;flex-direction:column;align-items:center;border-radius:4px;padding:8px 4px 6px;border:1px solid}
+.bs-bits{font:700 16px var(--mono);letter-spacing:.12em}
+.bs-name{font-size:11px;font-weight:700;margin-top:3px;opacity:.85}
+.bs-nib{margin-top:6px}
+.bs-n{flex:1;display:flex;flex-direction:column;align-items:center;background:var(--card2);border-radius:4px;padding:5px 0}
+.bs-n .bs-bits{font-size:13px}.bs-n i{font-style:normal}
+.bs-n b{font:800 18px var(--mono);color:#fff;margin-top:2px}
+.bs-hex{font:15px var(--mono);margin:10px 0 0}.bs-hex b{color:var(--amb);font-size:20px;letter-spacing:.06em}
+.t-op{--t:#fbbf24}.t-ni{--t:#38bdf8}.t-x{--t:#a78bfa}.t-bp{--t:#34d399}.t-e{--t:#f472b6}.t-disp{--t:#fb923c}.t-reg{--t:#a78bfa}.t-data{--t:#93c5fd}
+.bs-f{color:var(--t);border-color:var(--t);background:color-mix(in srgb,var(--t) 12%,transparent)}
+.bs-n i{color:var(--t)}
+
+/* Listing while assembling */
+.ln.head{cursor:default;color:var(--mute);font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase}.ln.head:hover{background:none}
+.ln.dim code{opacity:.45}
+.ln .o.fresh,.objp .fresh,table.sym tr.fresh td{color:var(--ok);font-weight:700;animation:pop .7s}
+table.sym tr.use td{color:var(--acc);font-weight:700}
+.objp div{white-space:pre}

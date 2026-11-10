@@ -47,7 +47,8 @@ export function fromAssembly(src: string): Built {
       length: res.programLength,
       load(mem, regs) { mem.clear(); regs.reset(res.startAddress); Loader.load(obj, mem, regs); },
       lines: res.listing.map((l) => ({
-        key: 'l' + l.lineNo, loc: l.loc, text: l.sourceText, code: l.objectCode, inspect: !!l.format,
+        key: 'l' + l.lineNo, loc: l.loc, text: l.sourceText, code: l.objectCode,
+        inspect: !!l.format && !/^(BYTE|WORD)$/i.test(l.mnemonic ?? ''), // only real instructions can be decoded
       })),
       symbols: res.symbolList,
       objectText: obj.fullText,

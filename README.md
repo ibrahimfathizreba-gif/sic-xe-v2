@@ -30,6 +30,12 @@ Requires Node.js 20.19+ or 22.12+.
   - **Object program**: `H`, `T`, `M` and `E` records.
   - **Errors** shown per line: duplicate labels, undefined symbols, out-of-range displacements.
 
+- **Assemble mode (step by step)**: walk through what the assembler does, with Step, Back and a timeline.
+  - **Pass 1**, line by line: LOCCTR before → after and why (+3 format 3, +4 for `+`, 3 × n for RESW …), each label entering SYMTAB, forward references flagged.
+  - **Pass 2**, line by line: the encoding worked out like on paper (opcode, `n i`, `x`, PC = LOC + length, `disp = TA − PC` and the range check, falling back to base-relative), then the instruction **as 0s and 1s**, field by field in colour, grouped in fours into hex.
+  - The **object program** builds up as Pass 2 writes it (H, T, M, E records).
+  - Every explanation is checked by a test to produce exactly the hex the assembler produced.
+
 - **CPU simulator**
   - 1 MB byte-addressable memory, 24-bit big-endian words; registers `A X L B S T PC SW`.
   - Fetch → decode → execute, with the `n i x b p e` bits and the target-address formula shown for every instruction.
@@ -109,6 +115,7 @@ npm test
 
 - `src/sicxe/sicxe.test.ts`: single-instruction encodings, assembler output and the CPU trace for `sum1to5`.
 - `src/sicxe/examples.test.ts`: runs every example to completion and checks its result; checks that faults halt the CPU without moving PC.
+- `src/asmTrace.test.ts`: the step-by-step explanation gives the same hex as the assembler for every line (all examples plus a program covering negative displacements, base-relative, format 4, indirect, format 1 and 2, BYTE and WORD); LOCCTR and SYMTAB match Pass 1.
 - `src/program.test.ts`: raw-hex and object-program loading, including the handout decode exercises (`4B101036` → `+JSUB 01036`, …).
 
 The same checks run on every push through GitHub Actions (`.github/workflows/ci.yml`), which also publishes the site to GitHub Pages.
