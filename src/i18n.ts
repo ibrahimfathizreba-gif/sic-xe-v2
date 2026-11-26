@@ -25,6 +25,8 @@ export function saveLang(lang: Lang) {
 
 // Interface text. Keys are short English names.
 const UI = {
+  learn: ['Learn', 'الشرح'],
+  learnTitle: ['The story: from one line of assembly to a running machine', 'العرض: من سطر أسمبلي إلى آلة تعمل'],
   assemble: ['Assemble', 'التجميع'],
   run: ['Run', 'التنفيذ'],
   practice: ['Practice', 'تدريب'],
