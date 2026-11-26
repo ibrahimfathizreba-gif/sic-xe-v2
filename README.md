@@ -30,7 +30,12 @@ Requires Node.js 20.19+ or 22.12+.
   - **Object program**: `H`, `T`, `M` and `E` records.
   - **Errors** shown per line: duplicate labels, undefined symbols, out-of-range displacements.
 
-- **Layout**: the program stays on one side and the explanation on the other, so the line, its steps and its bits are on screen together. Two modes at the top: **1 Assemble → 2 Run**.
+- **Learn (the story before the lab)**: the site opens on a scroll-driven presentation, in English or Arabic. One 3D scene sits behind the page and the scroll position drives it: the SIC/XE chip opens layer by layer, Pass 1 lays each line on a ruler of memory while LOCCTR measures it and plants a flag for every label, Pass 2 turns `LDX #1` into 24 bits one field at a time, displacements are drawn as arcs from PC to the target, the object program lifts off as H, T and E records, the loader flies the bytes into memory, and the CPU runs the program to `A = 15`.
+  - Every number in it is computed by the project's own assembler and CPU on the first example (`src/story/data.ts`), and a test checks that.
+  - **Presenting**: `Space`, `→`, `↓` or `PageDown` glide to the next place where the picture is complete; `Shift+Space`, `←`, `↑` or `PageUp` go back; `Home` and `End` jump to the ends. The marks at the side jump to a chapter.
+  - At the end of Pass 2 you can pick any line of the program and open that same line in the lab. The last screen opens the lab on the same program.
+  - The address keeps the place: `#learn`, `#assemble`, `#run`, `#practice`. A link with `#assemble` opens the lab directly.
+- **Layout**: the program stays on one side and the explanation on the other, so the line, its steps and its bits are on screen together. Modes at the top: **0 Learn → 1 Assemble → 2 Run · 3 Practice**.
 - **English / Arabic**: one button switches the whole interface and every generated explanation to Arabic (right-to-left); code, hex and bits stay left-to-right. English is the default; the choice is remembered (`?lang=ar` also works).
 - **Assemble mode (step by step)**: walk through what the assembler does, with Step, Back and a timeline.
   - **Pass 1**, line by line: LOCCTR before → after and why (+3 format 3, +4 for `+`, 3 × n for RESW …), each label entering SYMTAB, forward references flagged.
@@ -52,7 +57,8 @@ Requires Node.js 20.19+ or 22.12+.
   - **Breakpoints**: click the dot next to a line in the listing.
   - A faulting instruction (division by zero, illegal immediate store, unsupported opcode) stops the machine with the reason, and PC stays on the instruction that failed.
 
-- **3D machine view**: CPU blocks, registers and memory on a board. Light pulses follow the real data path of the last instruction (cyan = fetch, amber = execute, green = store). Memory rows far from the program (for example a buffer after `RESB 3000`) are brought onto the board when an instruction uses them.
+- **3D machine view**: the same chip the story opens, drawn with three.js from simple shapes in code (`src/three/`): control unit, IR, ALU, PC and the registers as small chips with a display, copper buses, and a block of memory. Light pulses follow the real data path of the last instruction (cyan = fetch, amber = execute, green = store). Drag to turn it, use + and − to zoom, and press any part to read what it does and what it holds now. Memory rows far from the program (for example a buffer after `RESB 3000`) are brought onto the board when an instruction uses them.
+- **Works offline**: fonts and the 3D library are bundled with the site; nothing is fetched from another server while presenting.
 
 - **Load machine code directly**: paste raw hex at any start address, or a Beck object program (H/T/M/E, with or without `^`). It is disassembled, and Step, Back and the timeline work as usual. Handy for checking "decode this hex" exercises.
 - **Reference sheet** (`?`): the hand-encoding method, bit layouts of formats 1–4, `n i` and `x b p e` rules, registers, directives and a searchable opcode table.
@@ -126,5 +132,6 @@ npm test
 - `src/asmTrace.test.ts`: the step-by-step explanation gives the same hex as the assembler for every line (all examples plus a program covering negative displacements, base-relative, format 4, indirect, format 1 and 2, BYTE and WORD); LOCCTR and SYMTAB match Pass 1.
 - `src/practice.test.ts`: generated questions in every topic assemble correctly, really test their topic, decode back to the same instruction, accept the right answer and name the usual mistakes.
 - `src/program.test.ts`: raw-hex and object-program loading, including the handout decode exercises (`4B101036` → `+JSUB 01036`, …).
+- `src/story.test.ts`: the story's data in both languages matches the engine (addresses, labels, bits grouped in fours equal the object code, the run ends with `A = 15`), and its scroll timetable is consistent.
 
 The same checks run on every push through GitHub Actions (`.github/workflows/ci.yml`), which also publishes the site to GitHub Pages.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 import { Play, Pause, StepForward, RotateCcw, Pencil, Check, StepBack, BookOpen, Presentation, Copy, Upload, Languages, ChevronDown, ChevronUp } from 'lucide-react';
 import { CPU } from './sicxe/cpu.ts';
 import { Memory } from './sicxe/memory.ts';
@@ -7,7 +7,6 @@ import { Decoder } from './sicxe/decoder.ts';
 import { EXAMPLES } from './sicxe/examples.ts';
 import { ConditionCode, DecodedInstruction, RegisterId, StepResult } from './sicxe/types.ts';
 import { explain, haltReason, hex } from './explain.ts';
-import { Stage3D } from './Stage3D.tsx';
 import { memRows } from './memRows.ts';
 import { Built, LoadError, Program, Source, fromAssembly, fromHex, fromObject } from './program.ts';
 import { AsmTrace, buildTrace, fieldsOf } from './asmTrace.ts';
@@ -16,6 +15,10 @@ import { Reference } from './Reference.tsx';
 import { DEMO, DEMO_HEX, DemoAct, DemoBar, Tab } from './Demo.tsx';
 import { L, Lang, loadLang, saveLang, ui } from './i18n.ts';
 import { Practice } from './Practice.tsx';
+
+// The story is loaded on its own, so the 3D library is only fetched when someone opens it.
+const Story = lazy(() => import('./story/Story.tsx'));
+const Machine3D = lazy(() => import('./Machine3D.tsx'));
 
 const REGS: [RegisterId, string, string][] = [
   ['A', 'Accumulator', 'المركم'], ['X', 'Index', 'الفهرسة'], ['L', 'Return address', 'عنوان الرجوع'], ['B', 'Base', 'القاعدة'],
@@ -29,7 +32,13 @@ const SOURCES: [Source, 'srcAsm' | 'srcHex' | 'srcObj'][] = [['asm', 'srcAsm'], 
 // Safety stop for Play: a program that loops forever (without a jump-to-self) halts here.
 const MAX_STEPS = 5000;
 const ascii = (b: number) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '·');
-type Mode = 'asm' | 'run' | 'practice';
+type Mode = 'learn' | 'asm' | 'run' | 'practice';
+// The mode is kept in the address (#learn, #assemble, #run, #practice) so a link or a reload opens the same place.
+const HASH: Record<Mode, string> = { learn: 'learn', asm: 'assemble', run: 'run', practice: 'practice' };
+const modeFromHash = (): Mode => {
+  const h = typeof window === 'undefined' ? '' : window.location.hash.slice(1);
+  return (Object.keys(HASH) as Mode[]).find((m) => HASH[m] === h) ?? 'learn';
+};
 
 export default function App() {
   const [mem] = useState(() => new Memory());
@@ -58,7 +67,7 @@ export default function App() {
   const [editing, setEditing] = useState<Source | null>(null);
 
   // Assemble mode: the assembler's steps (rebuilt when the language changes) and where we are in them
-  const [mode, setMode] = useState<Mode>('asm');
+  const [mode, setMode] = useState<Mode>(modeFromHash);
   const trace: AsmTrace | null = useMemo(() => (asmSrc !== null && prog ? buildTrace(asmSrc, lang) : null), [asmSrc, prog, lang]);
   const [at, setAt] = useState(0);
 
@@ -154,7 +163,8 @@ export default function App() {
   // The controls act on whichever mode is showing
   const asmMode = mode === 'asm' && !!trace;
   const practice = mode === 'practice';
-  const runMode = !asmMode && !practice;
+  const learn = mode === 'learn';
+  const runMode = !asmMode && !practice && !learn;
   const asmLast = trace ? trace.steps.length - 1 : 0;
   const forward = useCallback(() => {
     if (asmMode) setAt((a) => Math.min(asmLast, a + 1));
@@ -209,6 +219,17 @@ export default function App() {
     if (a.tab) setTab(a.tab);
     setShowRef(!!a.reference);
   };
+  // From the story: open the lab on the story's own program, optionally at the Pass 2 step of one line
+  const openLab = (line?: number) => {
+    setDemo(null); setShowRef(false);
+    pick(EXAMPLES[0].id);
+    if (line !== undefined) {
+      const k = buildTrace(EXAMPLES[0].source, lang).steps.findIndex((x) => x.phase === 'p2' && x.line === line);
+      if (k >= 0) setAt(k);
+    }
+    setMode('asm');
+    window.scrollTo(0, 0);
+  };
   const goDemo = (i: number) => { const k = Math.max(0, Math.min(DEMO.length - 1, i)); setDemo(k); act(DEMO[k].act); };
 
   const copyLog = async () => {
@@ -229,9 +250,18 @@ export default function App() {
   }, [running, atEnd, speed, forward, asmMode]);
   useEffect(() => { setRunning(false); }, [mode]);
   useEffect(() => {
+    try { if (window.location.hash.slice(1) !== HASH[mode]) window.history.replaceState(null, '', '#' + HASH[mode]); } catch { /* address bar not available */ }
+  }, [mode]);
+  useEffect(() => {
+    const onHash = () => setMode(modeFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  useEffect(() => {
     const k = (e: KeyboardEvent) => {
       const tg = e.target;
       if (tg instanceof HTMLTextAreaElement || tg instanceof HTMLInputElement || tg instanceof HTMLSelectElement) return;
+      if (mode === 'learn') return; // the story has its own keys
       if (e.key === '?') { e.preventDefault(); setShowRef((v) => !v); return; }
       if (showRef || practice) return;
       if (e.key === 'ArrowRight') { e.preventDefault(); forward(); }
@@ -240,7 +270,7 @@ export default function App() {
     };
     window.addEventListener('keydown', k);
     return () => window.removeEventListener('keydown', k);
-  }, [forward, backward, showRef, practice]);
+  }, [forward, backward, showRef, practice, mode]);
 
   const ok = !!prog;
   const pc = reg.PC;
@@ -382,12 +412,22 @@ export default function App() {
     </section>
   );
 
+  if (learn) {
+    return (
+      <Suspense fallback={<div className="boot"><div className="brand"><b>SIC/XE</b> Lab</div></div>}>
+        <Story lang={lang} setLang={setLang} onOpenLab={openLab} />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="app">
       <a className="skip" href="#work">{T('Skip to the program', 'انتقل إلى البرنامج')}</a>
       <header className="top" data-enter>
         <div className="brand"><b>SIC/XE</b> Lab</div>
         <div className="modes" role="tablist" aria-label={t('modeLabel')}>
+          <button role="tab" aria-selected={false} onClick={() => setMode('learn')} title={t('learnTitle')}><b>0</b> {t('learn')}</button>
+          <span className="arrowsep" aria-hidden="true">{lang === 'ar' ? '←' : '→'}</span>
           <button role="tab" aria-selected={asmMode} className={asmMode ? 'on' : ''} disabled={!trace} onClick={() => setMode('asm')} title={trace ? '' : t('asmOnly')}><b>1</b> {t('assemble')}</button>
           <span className="arrowsep" aria-hidden="true">{lang === 'ar' ? '←' : '→'}</span>
           <button role="tab" aria-selected={runMode} className={runMode ? 'on' : ''} disabled={!ok} onClick={() => setMode('run')}><b>2</b> {t('run')}</button>
@@ -476,7 +516,7 @@ export default function App() {
                   <span>{t('board3d')}</span>
                   <button className="link" onClick={() => setShow3d((v) => !v)} aria-expanded={show3d}>{show3d ? <ChevronUp size={16} /> : <ChevronDown size={16} />} {show3d ? t('hide3d') : t('show3d')}</button>
                 </h2>
-                {show3d && <Stage3D reg={reg} chRegs={chRegs} chMem={chMem} mem={mem} rowAddrs={boardRows} pc={pc} halted={halted} last={last} steps={steps} />}
+                {show3d && <Suspense fallback={<div className="stage" />}><Machine3D reg={reg} chRegs={chRegs} chMem={chMem} mem={mem} rowAddrs={boardRows} pc={pc} halted={halted} last={last} steps={steps} lang={lang} /></Suspense>}
               </section>
 
               <section className="card">
