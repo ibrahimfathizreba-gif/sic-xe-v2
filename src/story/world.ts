@@ -58,6 +58,7 @@ export class World {
   ruler: Ruler; bits = new Bits();
   busy = false; // something is still settling, so the next frame is needed even if the scroll has stopped
   private root = new THREE.Group();
+  private shadowSig = ''; private nth = 0; private lt = new THREE.Vector3();
   private key: THREE.DirectionalLight; private fill: THREE.DirectionalLight; private hemi: THREE.HemisphereLight;
   private floor: THREE.Mesh;
   private pose: Pose = [...POSE.hero]; private v = new THREE.Vector3(); private tgt = new THREE.Vector3();
@@ -69,19 +70,26 @@ export class World {
 
   private env: THREE.Texture;
 
-  constructor(private story: Story, gl: THREE.WebGLRenderer, private scene: THREE.Scene) {
+  constructor(private story: Story, private gl: THREE.WebGLRenderer, private scene: THREE.Scene) {
     loadFonts();
+    // shadows are drawn again only when something that casts one has moved (see the end of update)
+    gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true;
+    gl.domElement.addEventListener('webglcontextrestored', this.redoShadows);
     this.env = makeEnvironment(gl);
     this.scene.environment = this.env;
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x8894a8, 0.55);
     this.key = new THREE.DirectionalLight(0xfff4e6, 2.6);
-    this.key.castShadow = true; this.key.shadow.mapSize.set(1536, 1536);
+    this.key.castShadow = true; this.key.shadow.mapSize.set(1024, 1024);
     const sc = this.key.shadow.camera; sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14; sc.near = 1; sc.far = 70; sc.updateProjectionMatrix();
-    this.key.shadow.bias = -0.0004; this.key.shadow.normalBias = 0.03; this.key.shadow.radius = 7; this.key.shadow.blurSamples = 16;
+    this.key.shadow.bias = -0.0004; this.key.shadow.normalBias = 0.03;
     this.fill = new THREE.DirectionalLight(0xbfd6ff, 0.7);
-    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(240, 120), new THREE.ShadowMaterial({ opacity: 0.14 }));
-    this.floor.rotation.x = -Math.PI / 2; this.floor.position.set(BX / 2, -0.01, 0); this.floor.receiveShadow = true;
-    this.root.add(this.hemi, this.key, this.key.target, this.fill, this.fill.target, this.floor);
+    // the floor only exists under the machine and under the bench, so most of the screen is left untouched
+    const shadow = new THREE.ShadowMaterial({ opacity: 0.14 });
+    this.floor = new THREE.Mesh(new THREE.PlaneGeometry(34, 26), shadow);
+    this.floor.rotation.x = -Math.PI / 2; this.floor.position.set(0, -0.01, 0); this.floor.receiveShadow = true;
+    const floor2 = new THREE.Mesh(new THREE.PlaneGeometry(30, 12), shadow);
+    floor2.rotation.x = -Math.PI / 2; floor2.position.set(BX, -0.01, 0); floor2.receiveShadow = true;
+    this.root.add(this.hemi, this.key, this.key.target, this.fill, this.fill.target, this.floor, floor2);
 
     const sized = story.lines.filter((l) => l.size > 0);
     this.blockOf = story.lines.map((l) => sized.indexOf(l));
@@ -103,7 +111,13 @@ export class World {
     };
     this.root.add(this.machine.group, this.ruler.group, this.bits.group);
     this.scene.add(this.root);
+    // the scene and its root never move; the canvas works out the world matrices once per frame, after update()
+    this.root.matrixAutoUpdate = false; this.scene.matrixAutoUpdate = false; this.scene.matrixWorldAutoUpdate = false;
     this.scene.updateMatrixWorld(true);
+
+    // Build every shader now, while the opening screen is up. Otherwise each would be built at the moment
+    // its object first appears, and that frame would stall.
+    void gl.compileAsync(this.scene, new THREE.PerspectiveCamera()).catch(() => {});
 
     this.lineBits = story.lines.map((l) => bitsOf(l.fields));
     this.farBits = story.far ? bitsOf(story.far.fields) : [];
@@ -120,17 +134,19 @@ export class World {
 
     // ---------- the machine ----------
     const mc = this.machine;
-    mc.group.visible = c.ch <= CH.PASS1 || c.ch >= CH.LOADER;
+    this.stage(mc.group, c.ch <= CH.PASS1 || c.ch >= CH.LOADER);
     const lidAway = io(seg(t1, 0.66, 0.9)) * (1 - io3(seg(t10, 0.04, 0.55)));
-    mc.setExplode(io3(seg(t1, 0.04, 0.42)) * (1 - io3(seg(t1, 0.7, 0.96))), lidAway, io3(seg(t2, 0.04, 0.4)) * (1 - io3(seg(t2, 0.86, 1))));
+    const apart = io3(seg(t1, 0.04, 0.42)) * (1 - io3(seg(t1, 0.7, 0.96))), memUp = io3(seg(t2, 0.04, 0.4)) * (1 - io3(seg(t2, 0.86, 1)));
+    mc.setExplode(apart, lidAway, memUp);
 
     const marks = new Map<number, CellMark>();
-    let bytes: (a: number) => number = () => -1;
+    let bytes: (a: number) => number = () => -1, memSig = '';
     let regs = s.initial, cc = 'EQ', pc = '', ir = '', showRegs = false;
     if (c.ch < CH.LOADER) {
       const first = s.lines.find((l) => l.code)!, k = first.code.length / 2;
       bytes = (a) => (a >= first.loc && a < first.loc + k && t2 > 0.5 + (a - first.loc) * 0.07 ? s.loaded[a] : -1);
       for (let a = first.loc; a < first.loc + k; a++) if (bytes(a) >= 0) marks.set(a, 'on');
+      memSig = 'a' + marks.size;
     } else if (c.ch === CH.LOADER) {
       let last = -1;
       const landed = new Set<number>();
@@ -138,6 +154,7 @@ export class World {
       bytes = (a) => { for (const li of landed) { const l = s.lines[li]; if (a >= l.loc && a < l.loc + l.size) return s.loaded[a]; } return -1; };
       if (last >= 0 && t8 < 0.94) { const l = s.lines[last]; for (let a = l.loc; a < l.loc + l.size; a++) marks.set(a, 'write'); }
       if (t8 > 0.94) { pc = hex(s.start); showRegs = true; marks.set(s.start, 'pc'); }
+      memSig = `l${landed.size}:${last}:${t8 < 0.94 ? 0 : 1}`;
     } else {
       const N = s.frames.length, { s: k, f } = c.ch === CH.RUN ? runStep(t9, N) : { s: N - 1, f: 1 };
       const fr = s.frames[k], prev = k > 0 ? s.frames[k - 1] : null, done = f >= RUN_DONE;
@@ -154,18 +171,20 @@ export class World {
       const d = fr.step.instruction;
       if (f > fetched && !done && d.format >= 3 && d.addressingMode !== 'immediate' && d.targetAddress !== undefined && !/^J/.test(d.mnemonic) && !fr.step.memoryChanges.length) for (let a = 0; a < 3; a++) marks.set(d.targetAddress + a, 'read');
       if (done) for (const m of fr.step.memoryChanges) m.newBytes.forEach((_, i) => marks.set(m.address + i, 'write'));
+      memSig = `r${k}:${done ? 1 : 0}:${f > fetched ? 1 : 0}`;
       if (c.ch === CH.RUN) mc.drawPath(st, f / RUN_DONE); else { mc.clearPath(); mc.clearHot(); }
     }
     if (c.ch !== CH.RUN && c.ch <= CH.LOADER) { mc.clearPath(); mc.clearHot(); }
-    mc.setMemory(bytes, marks);
+    mc.setMemory(bytes, marks, memSig);
     for (const id of ['A', 'X', 'L', 'B', 'S', 'T'] as PartId[]) mc.setDisplay(id, showRegs ? String(toSigned24(regs[id as 'A'])) : '');
     mc.setDisplay('SW', showRegs ? cc : '');
     mc.setDisplay('PC', pc); mc.setDisplay('IR', ir);
+    mc.commit();
     if (c.ch === CH.LOADER && t8 > 0.94) mc.setHot('PC', Math.sin(Math.PI * seg(t8, 0.94, 1)));
 
     // ---------- the ruler ----------
     const r = this.ruler;
-    r.group.visible = c.ch >= CH.PASS1 && c.ch <= CH.LOADER;
+    this.stage(r.group, c.ch >= CH.PASS1 && c.ch <= CH.LOADER);
     if (r.group.visible) {
       const slot = p1Slot(n), k = p1Line(t3, n);
       let codedJ = 0;
@@ -198,7 +217,7 @@ export class World {
 
     // ---------- the row of bits ----------
     const b = this.bits;
-    b.group.visible = c.ch >= CH.PASS2 && c.ch <= CH.OBJECT;
+    this.stage(b.group, c.ch >= CH.PASS2 && c.ch <= CH.OBJECT);
     let shownLine = -1; // which story line the bits belong to (−1: none on the ruler)
     if (b.group.visible) {
       const ldx = find('LDX');
@@ -245,11 +264,27 @@ export class World {
     if (shift) camera.setViewOffset(w, h, -shift * w, aspect > 1.15 ? 0 : 0, w, h); else camera.clearViewOffset();
     camera.updateProjectionMatrix();
 
-    this.key.target.position.copy(this.tgt); this.key.position.copy(this.tgt).add(this.v.set(-8, 17, 9));
+    // The light stands still over the machine, or over the bench, and follows the camera only on the way between the two.
+    // While it stands still and nothing that casts a shadow moves, the shadows of the last frame are simply kept.
+    const over = Math.abs(this.tgt.x) < 6 ? 0 : Math.abs(this.tgt.x - BX) < 7 ? BX : NaN;
+    if (Number.isNaN(over)) this.lt.copy(this.tgt); else this.lt.set(over, 2, 0);
+    this.key.target.position.copy(this.lt); this.key.position.copy(this.lt).add(this.v.set(-8, 17, 9));
     this.fill.target.position.copy(this.tgt); this.fill.position.copy(this.tgt).add(this.v.set(12, 6, -4));
+    const sig = Number.isNaN(over) || c.ch === CH.LOADER ? `f${c.u.toFixed(4)}`
+      : over === 0 ? `m${apart.toFixed(4)}:${lidAway.toFixed(4)}:${memUp.toFixed(4)}:${mc.group.visible}`
+      : `b${r.cast.toFixed(4)}:${b.group.visible ? b.cast.toFixed(4) : ''}:${b.moving ? ++this.nth : 0}`;
+    if (sig !== this.shadowSig) { this.shadowSig = sig; this.gl.shadowMap.needsUpdate = true; }
     this.key.intensity = mix(2.6, 1.7, dark); this.hemi.intensity = mix(0.55, 0.32, dark);
     this.scene.environmentIntensity = mix(1.0, 0.7, dark);
     (this.floor.material as THREE.ShadowMaterial).opacity = mix(0.14, 0.4, dark);
+  }
+
+  // For trying things from the browser console: the scene without cast shadows (the soft patches under the objects stay)
+  setShadows(on: boolean) { this.key.castShadow = on; (this.floor.material as THREE.ShadowMaterial).visible = on; this.gl.shadowMap.needsUpdate = true; }
+  private redoShadows = () => { this.gl.shadowMap.needsUpdate = true; this.shadowSig = ''; };
+  private stage(g: THREE.Object3D, on: boolean) {
+    g.visible = on;
+    if (on !== (g.parent === this.root)) { if (on) this.root.add(g); else this.root.remove(g); }
   }
 
   // How far the j-th coded block has flown towards memory (0..1)
@@ -260,6 +295,10 @@ export class World {
     return k === 'm:' ? this.machine.anchor(rest, out) : k === 'r:' ? this.ruler.anchor(rest, out) : this.bits.anchor(rest, out);
   }
 
-  dispose() { this.scene.remove(this.root); this.scene.environment = null; this.env.dispose(); this.machine.dispose(); }
+  dispose() {
+    this.scene.remove(this.root); this.scene.environment = null; this.env.dispose(); this.machine.dispose();
+    this.scene.matrixAutoUpdate = this.scene.matrixWorldAutoUpdate = true; this.gl.shadowMap.autoUpdate = true;
+    this.gl.domElement.removeEventListener('webglcontextrestored', this.redoShadows);
+  }
 }
 

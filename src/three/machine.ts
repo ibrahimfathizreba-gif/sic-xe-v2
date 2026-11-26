@@ -2,6 +2,7 @@
 // the registers, the ALU and a block of memory joined by copper buses, and a metal lid on top.
 // The story opens it layer by layer; Run mode shows it without the lid and lights the real data path.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { AMBER, CYAN, GREEN, Label, M, MONO, P3, clamp01, contactShadow, pathAt, pathLength, rbox, roundRect, text, topPlane } from './kit.ts';
 import type { StepResult } from '../sicxe/types.ts';
 
@@ -31,7 +32,8 @@ const edgeZ = (n: Node) => (n.z < BUSZ ? n.z + n.d / 2 : n.z - n.d / 2);
 const toBus = (n: Node): P3[] => [[n.x, Y_TR, edgeZ(n)], [n.x, Y_TR, BUSZ]];
 const link = (a: Node, b: Node): P3[] => [...toBus(a), ...toBus(b).reverse()];
 
-interface Block { node: Node; group: THREE.Group; mat: THREE.MeshPhysicalMaterial; label: Label; value: string; hot: number }
+// mat: the chip's own material, used only while it glows; otherwise all chips share one. rect: its display's place on the shared canvas.
+interface Block { node: Node; group: THREE.Group; body: THREE.Mesh; mat: THREE.MeshStandardMaterial; rect: [number, number, number, number]; value: string; hot: number }
 
 export interface PathStage { pts: P3[]; color: string; from?: PartId; to?: PartId; cell?: number; len: number }
 export type CellMark = 'pc' | 'write' | 'read' | 'on';
@@ -41,11 +43,13 @@ export class Machine {
   pickables: THREE.Object3D[] = [];
   private gPkg = new THREE.Group(); private gDie = new THREE.Group(); private gMem = new THREE.Group();
   private gCtl = new THREE.Group(); private gRegs = new THREE.Group(); private gLid = new THREE.Group();
-  private blocks = {} as Record<PartId, Block>;
-  private memLabel!: Label; private memKey = '';
+  private blocks = {} as Record<PartId, Block>; private all: Block[] = [];
+  private idle!: THREE.MeshStandardMaterial; private faces!: Label; private facesDirty = false;
+  private memLabel!: Label; private memKey = ''; private memSig: string | undefined;
   private rows: number[] = Array.from({ length: MEM.rows }, (_, i) => i * 16);
   private pulses!: THREE.InstancedMesh; private heads: THREE.Sprite[] = []; private nPulse = 0; private nHead = 0;
   private tmp = new THREE.Object3D(); private col = new THREE.Color(); private v = new THREE.Vector3();
+  private mtx = new THREE.Matrix4(); private cols = new Map<string, THREE.Color>();
   private busMat!: THREE.MeshStandardMaterial;
 
   constructor() {
@@ -60,7 +64,8 @@ export class Machine {
     sub.position.set(cx, SUB_H / 2, 0); sub.castShadow = sub.receiveShadow = true;
     this.gPkg.add(sub);
     const cs = contactShadow(pkgW + 0.5, pkgD + 0.5, 0.42); cs.position.x = cx; this.gPkg.add(cs);
-    const nx = 26, nz = 12, leads = new THREE.InstancedMesh(rbox(0.17, 0.07, 0.5, 0.02, 2), m.gold, (nx + nz) * 2);
+    // (an instanced mesh keeps a material of its own: sharing one with ordinary meshes makes three.js re-describe the shader at every switch)
+    const nx = 26, nz = 12, leads = new THREE.InstancedMesh(rbox(0.17, 0.07, 0.5, 0.02, 2), m.gold.clone(), (nx + nz) * 2);
     let li = 0;
     const put = (x: number, z: number, turn: boolean) => {
       this.tmp.position.set(x, 0.07, z); this.tmp.rotation.set(0, turn ? Math.PI / 2 : 0, 0); this.tmp.scale.set(1, 1, 1); this.tmp.updateMatrix();
@@ -92,25 +97,27 @@ export class Machine {
       lab('REGISTERS  24 BIT', -5.0, R2 + 0.74); lab('CONTROL', -5.0, R1 - 0.72);
       lab('SIC/XE', 4.55, 2.08);
     });
-    const planMesh = topPlane(dieW, dieD, new THREE.MeshPhysicalMaterial({ map: plan.tex, metalness: 0.5, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.2 }));
+    const planMesh = topPlane(dieW, dieD, new THREE.MeshStandardMaterial({ map: plan.tex, metalness: 0.5, roughness: 0.26 }));
     planMesh.position.set(cx, TOP + 0.002, 0); planMesh.receiveShadow = true;
     this.gDie.add(planMesh);
 
     this.busMat = m.copper.clone();
     this.busMat.emissive = new THREE.Color('#ff9a3c'); this.busMat.emissiveIntensity = 0;
+    // all the traces are one mesh, and so are the pads: fewer things to draw on every frame
+    const strips: THREE.BufferGeometry[] = [];
     const trace = (a: P3, b: P3, wd = 0.07) => {
       const horiz = Math.abs(b[0] - a[0]) >= Math.abs(b[2] - a[2]);
       const len = Math.hypot(b[0] - a[0], b[2] - a[2]) + wd;
-      const t = new THREE.Mesh(rbox(horiz ? len : wd, 0.03, horiz ? wd : len, 0.012, 1), this.busMat);
-      t.position.set((a[0] + b[0]) / 2, TOP + 0.016, (a[2] + b[2]) / 2); t.userData.part = 'BUS';
-      this.gDie.add(t); this.pickables.push(t);
+      strips.push(rbox(horiz ? len : wd, 0.03, horiz ? wd : len, 0.012, 1).clone().translate((a[0] + b[0]) / 2, TOP + 0.016, (a[2] + b[2]) / 2));
     };
+    const joined = (parts: THREE.BufferGeometry[]) => { const g = mergeGeometries(parts)!; for (const x of parts) x.dispose(); return g; };
     trace([-4.85, 0, BUSZ], [IFX, 0, BUSZ], 0.11);
     trace([IFX, 0, ADDRZ], [IFX, 0, DATAZ], 0.11);
     trace([IFX, 0, ADDRZ], [MEM_EDGE, 0, ADDRZ], 0.09); trace([IFX, 0, DATAZ], [MEM_EDGE, 0, DATAZ], 0.09);
     for (const n of NODES) { const [a, b] = toBus(n); trace(a, b); }
-    const pad = new THREE.CylinderGeometry(0.075, 0.075, 0.04, 16);
-    for (const n of NODES) { const p = new THREE.Mesh(pad, m.gold); p.position.set(n.x, TOP + 0.02, BUSZ); this.gDie.add(p); }
+    const bus = new THREE.Mesh(joined(strips), this.busMat); bus.userData.part = 'BUS';
+    this.gDie.add(bus); this.pickables.push(bus);
+    this.gDie.add(new THREE.Mesh(joined(NODES.map((n) => new THREE.CylinderGeometry(0.075, 0.075, 0.04, 16).translate(n.x, TOP + 0.02, BUSZ))), m.gold));
 
     // Memory: a slab carrying 16 × 8 byte cells; the bytes are printed on one canvas above them
     const memW = MEM.cols * MEM.p, memD = MEM.rows * MEM.p;
@@ -131,23 +138,54 @@ export class Machine {
     memPlane.position.set(MEM.x0 + (memW - MEM.gut) / 2, TOP + MEM.slab + MEM.cap + 0.004, MEM.z0 + memD / 2);
     this.gMem.add(memPlane);
 
-    // Control unit, instruction register, ALU, program counter and the registers: small chips with a display on top
-    for (const n of NODES) {
+    // Control unit, instruction register, ALU, program counter and the registers: small chips with a display on top.
+    // To keep each frame cheap, the chips share one material (their colours are painted on the geometry) and all the
+    // displays are printed on one canvas, drawn as one mesh per layer.
+    this.idle = m.body.clone(); this.idle.color.set(0xffffff); this.idle.vertexColors = true;
+    const PAD = 8, SHEET = 1024, quads: Record<'ctl' | 'regs', number[][]> = { ctl: [[], [], []], regs: [[], [], []] };
+    let ax = PAD, ay = PAD, rowH = 0;
+    const placed = NODES.map((n) => {
+      const pw = n.id === 'ALU' ? 0.5 : n.w - 0.12, pd = n.id === 'ALU' ? 0.36 : n.d - 0.12;
+      const lw = Math.round(200 * pw / Math.min(pw, pd)), lh = Math.round(200 * pd / Math.min(pw, pd));
+      if (ax + lw + PAD > SHEET) { ax = PAD; ay += rowH + PAD; rowH = 0; }
+      const rect: [number, number, number, number] = [ax, ay, lw, lh];
+      ax += lw + PAD; rowH = Math.max(rowH, lh);
+      return { n, pw, pd, rect };
+    });
+    const sheetH = ay + rowH + PAD;
+    for (const { n, pw, pd, rect } of placed) {
       const g = new THREE.Group(); g.position.set(n.x, TOP, n.z);
       const mat = m.body.clone(); mat.color.set(n.tint).multiplyScalar(0.16).add(new THREE.Color(0x10151f));
       mat.emissive = new THREE.Color(n.tint); mat.emissiveIntensity = 0;
-      const body = new THREE.Mesh(n.id === 'ALU' ? aluShape(n) : rbox(n.w, n.h, n.d, 0.05, 3), mat);
+      const geo = n.id === 'ALU' ? aluShape(n) : rbox(n.w, n.h, n.d, 0.05, 3).clone();
+      const paint = new Float32Array(geo.attributes.position.count * 3);
+      for (let i = 0; i < paint.length; i += 3) { paint[i] = mat.color.r; paint[i + 1] = mat.color.g; paint[i + 2] = mat.color.b; }
+      geo.setAttribute('color', new THREE.BufferAttribute(paint, 3));
+      const body = new THREE.Mesh(geo, this.idle);
       if (n.id !== 'ALU') body.position.y = n.h / 2;
       body.castShadow = body.receiveShadow = true; body.userData.part = n.id;
       g.add(body); this.pickables.push(body);
-      const pw = n.id === 'ALU' ? 0.5 : n.w - 0.12, pd = n.id === 'ALU' ? 0.36 : n.d - 0.12;
-      const label = new Label(Math.round(200 * pw / Math.min(pw, pd)), Math.round(200 * pd / Math.min(pw, pd)), () => {});
-      const face = topPlane(pw, pd, new THREE.MeshBasicMaterial({ map: label.tex, toneMapped: false, transparent: true }));
-      face.position.set(0, n.h + (n.id === 'ALU' ? 0.024 : 0.003), n.id === 'ALU' ? -0.04 : 0);
-      g.add(face);
-      (n.z < BUSZ ? this.gCtl : this.gRegs).add(g);
-      this.blocks[n.id] = { node: n, group: g, mat, label, value: '\u0000', hot: 0 };
-      this.setDisplay(n.id, '');
+      const upper = n.z < BUSZ;
+      (upper ? this.gCtl : this.gRegs).add(g);
+      // the display: a flat rectangle on top of the chip, reading towards the viewer, showing its part of the shared canvas
+      const [rx, ry, lw, lh] = rect, q = quads[upper ? 'ctl' : 'regs'], at = q[0].length / 3;
+      const x = n.x, y = TOP + n.h + (n.id === 'ALU' ? 0.024 : 0.003), z = n.z + (n.id === 'ALU' ? -0.04 : 0);
+      const u0 = rx / SHEET, u1 = (rx + lw) / SHEET, v1 = 1 - ry / sheetH, v0 = 1 - (ry + lh) / sheetH;
+      q[0].push(x - pw / 2, y, z - pd / 2, x + pw / 2, y, z - pd / 2, x - pw / 2, y, z + pd / 2, x + pw / 2, y, z + pd / 2);
+      q[1].push(u0, v1, u1, v1, u0, v0, u1, v0);
+      q[2].push(at, at + 2, at + 1, at + 1, at + 2, at + 3);
+      this.blocks[n.id] = { node: n, group: g, body, mat, rect, value: '', hot: 0 };
+      this.all.push(this.blocks[n.id]);
+    }
+    this.faces = new Label(SHEET, sheetH, (g) => { for (const b of this.all) this.drawDisplay(g, b); });
+    const faceMat = new THREE.MeshBasicMaterial({ map: this.faces.tex, toneMapped: false, transparent: true });
+    for (const k of ['ctl', 'regs'] as const) {
+      const geo = new THREE.BufferGeometry(), [pos, uv, index] = quads[k];
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((_, i) => (i % 3 === 1 ? 1 : 0)), 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(index);
+      (k === 'ctl' ? this.gCtl : this.gRegs).add(new THREE.Mesh(geo, faceMat));
     }
 
     // Lid: a thick metal cap with the name etched on it
@@ -180,6 +218,7 @@ export class Machine {
       s.visible = false; s.renderOrder = 6; this.gDie.add(s); this.heads.push(s);
     }
     this.setMemory(() => -1);
+    this.commit();
   }
 
   // ---- layers ----
@@ -192,43 +231,53 @@ export class Machine {
     this.gCtl.position.y = k * 4.5;
     this.gLid.position.y = k * 6.4 + lid * 16;
     this.gLid.visible = lid < 0.995;
+    // closed: everything inside is hidden by the lid, so it is not drawn at all
+    this.gDie.visible = this.gMem.visible = this.gRegs.visible = this.gCtl.visible = k > 0.0005 || lid > 0.0005 || mem > 0.0005;
   }
   showLid(on: boolean) { this.gLid.visible = on; }
 
   // ---- displays ----
+  // Change what a chip's display shows. The canvas is redrawn once, by commit(), after all the changes of a frame.
   setDisplay(id: PartId, value: string) {
     const b = this.blocks[id];
     if (!b || b.value === value) return;
-    b.value = value;
-    b.label.redraw((g, w, h) => {
-      const n = b.node;
-      if (id === 'ALU') { text(g, 'ALU', w / 2, h / 2, h * 0.5, n.tint, 800); return; }
-      roundRect(g, 4, 4, w - 8, h - 8, 16); g.fillStyle = '#050a13'; g.fill();
-      g.lineWidth = 4; g.strokeStyle = n.tint + '99'; g.stroke();
-      const fit = (s: string, px: number, max: number, wt = 700) => { g.font = `${wt} ${px}px ${MONO}`; const m = g.measureText(s).width; return m > max ? (px * max) / m : px; };
-      if (h > w) { // a register: name above, value below
-        text(g, n.id, w / 2, h * 0.27, h * 0.2, n.tint, 800);
-        if (value) text(g, value, w / 2, h * 0.66, fit(value, h * 0.19, w - 34), '#ffffff', 700);
-      } else if (!value) text(g, n.id, w / 2, h / 2, h * 0.34, n.tint, 800);
-      else {
-        text(g, n.id, 22, h * 0.25, h * 0.2, n.tint, 800, 'left');
-        text(g, value, w / 2, h * 0.64, fit(value, h * 0.3, w - 40), '#ffffff', 700);
-      }
-    });
+    b.value = value; this.facesDirty = true;
+  }
+  commit() { if (this.facesDirty) { this.facesDirty = false; this.faces.redraw(); } }
+  private drawDisplay(g: CanvasRenderingContext2D, b: Block) {
+    const n = b.node, id = n.id, value = b.value, [x, y, w, h] = b.rect;
+    g.save(); g.translate(x, y);
+    if (id === 'ALU') { text(g, 'ALU', w / 2, h / 2, h * 0.5, n.tint, 800); g.restore(); return; }
+    roundRect(g, 4, 4, w - 8, h - 8, 16); g.fillStyle = '#050a13'; g.fill();
+    g.lineWidth = 4; g.strokeStyle = n.tint + '99'; g.stroke();
+    const fit = (s: string, px: number, max: number, wt = 700) => { g.font = `${wt} ${px}px ${MONO}`; const m = g.measureText(s).width; return m > max ? (px * max) / m : px; };
+    if (h > w) { // a register: name above, value below
+      text(g, n.id, w / 2, h * 0.27, h * 0.2, n.tint, 800);
+      if (value) text(g, value, w / 2, h * 0.66, fit(value, h * 0.19, w - 34), '#ffffff', 700);
+    } else if (!value) text(g, n.id, w / 2, h / 2, h * 0.34, n.tint, 800);
+    else {
+      text(g, n.id, 22, h * 0.25, h * 0.2, n.tint, 800, 'left');
+      text(g, value, w / 2, h * 0.64, fit(value, h * 0.3, w - 40), '#ffffff', 700);
+    }
+    g.restore();
   }
   // Make a chip glow (0..1), in its own colour or a given one
   setHot(id: PartId, v: number, color?: string) {
     const b = this.blocks[id]; if (!b) return;
     if (color) b.mat.emissive.set(color); else b.mat.emissive.set(b.node.tint);
-    b.mat.emissiveIntensity = v * 1.6;
+    this.glow(b, v * 1.6);
   }
-  clearHot() { for (const b of Object.values(this.blocks)) b.mat.emissiveIntensity = 0; this.busMat.emissiveIntensity = 0; }
+  // a chip that glows wears its own material; the others share one, which is cheaper to draw
+  private glow(b: Block, intensity: number) { b.mat.emissiveIntensity = intensity; b.body.material = intensity > 0 ? b.mat : this.idle; }
+  clearHot() { for (const b of this.all) this.glow(b, 0); this.busMat.emissiveIntensity = 0; }
   setBusGlow(v: number) { this.busMat.emissiveIntensity = v; }
 
   // ---- memory ----
-  setRows(rows: number[]) { this.rows = rows.slice(0, MEM.rows); this.memKey = ''; }
-  // byte(addr) gives the value to print, or -1 for an empty cell
-  setMemory(byte: (addr: number) => number, marks?: Map<number, CellMark>) {
+  setRows(rows: number[]) { this.rows = rows.slice(0, MEM.rows); this.memKey = ''; this.memSig = undefined; }
+  // byte(addr) gives the value to print, or -1 for an empty cell.
+  // sig: a caller that draws every frame can name the state it is showing; the same name twice costs nothing.
+  setMemory(byte: (addr: number) => number, marks?: Map<number, CellMark>, sig?: string) {
+    if (sig !== undefined) { if (sig === this.memSig) return; this.memSig = sig; } else this.memSig = undefined;
     const n = this.rows.length * 16;
     let key = this.rows.join(',') + '|';
     const vals: number[] = [];
@@ -302,7 +351,7 @@ export class Machine {
   // Draw the stages at progress f (0 = nothing yet, 1 = the last pulse has arrived). Chips glow as pulses leave or reach them.
   drawPath(stages: PathStage[], f: number) {
     this.nPulse = 0; this.nHead = 0;
-    for (const b of Object.values(this.blocks)) b.hot = 0;
+    for (const b of this.all) b.hot = 0;
     const total = stages.reduce((s, x) => s + x.len, 0) || 1;
     let at = 0;
     for (const st of stages) {
@@ -314,7 +363,7 @@ export class Machine {
       if (st.from && k < 0.3) this.blocks[st.from].hot = Math.max(this.blocks[st.from].hot, 1 - k / 0.3);
       if (st.to && k > 0.9) this.blocks[st.to].hot = Math.max(this.blocks[st.to].hot, fade);
     }
-    for (const b of Object.values(this.blocks)) { b.mat.emissive.set(b.node.tint); b.mat.emissiveIntensity = b.hot * 1.5; }
+    for (const b of this.all) { if (b.hot > 0) b.mat.emissive.set(b.node.tint); this.glow(b, b.hot * 1.5); }
     this.pulses.count = this.nPulse;
     this.pulses.instanceMatrix.needsUpdate = true;
     if (this.pulses.instanceColor) this.pulses.instanceColor.needsUpdate = true;
@@ -324,6 +373,8 @@ export class Machine {
 
   private streak(pts: P3[], head: number, tail: number, color: string, fade: number) {
     const from = Math.max(0, head - tail), STEP = 0.16;
+    let base = this.cols.get(color);
+    if (!base) { base = new THREE.Color(color); this.cols.set(color, base); }
     let d0 = 0;
     for (let i = 1; i < pts.length && this.nPulse < 470; i++) {
       const a = pts[i - 1], b = pts[i], l = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
@@ -332,19 +383,17 @@ export class Machine {
         const e = Math.min(s1, s + STEP), mid = (s + e) / 2 - d0, k = l ? mid / l : 0;
         const bright = fade * Math.pow(clamp01(((s + e) / 2 - from) / tail), 1.6);
         const alongX = Math.abs(b[0] - a[0]) >= Math.abs(b[2] - a[2]);
-        this.tmp.position.set(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k + 0.012, a[2] + (b[2] - a[2]) * k);
-        this.tmp.rotation.set(0, 0, 0);
-        this.tmp.scale.set(alongX ? e - s + 0.01 : 0.085, 0.022, alongX ? 0.085 : e - s + 0.01);
-        this.tmp.updateMatrix();
-        this.pulses.setMatrixAt(this.nPulse, this.tmp.matrix);
-        this.pulses.setColorAt(this.nPulse++, this.col.set(color).multiplyScalar(bright * 1.25));
+        this.mtx.makeScale(alongX ? e - s + 0.01 : 0.085, 0.022, alongX ? 0.085 : e - s + 0.01)
+          .setPosition(a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k + 0.012, a[2] + (b[2] - a[2]) * k);
+        this.pulses.setMatrixAt(this.nPulse, this.mtx);
+        this.pulses.setColorAt(this.nPulse++, this.col.copy(base).multiplyScalar(bright * 1.25));
       }
       d0 += l;
     }
     if (this.nHead < this.heads.length && fade > 0) {
       const h = this.heads[this.nHead++];
       pathAt(pts, head, this.v); h.position.copy(this.v); h.position.y += 0.03;
-      h.scale.setScalar(0.62); h.material.color.set(color); h.material.opacity = fade; h.visible = true;
+      h.scale.setScalar(0.62); h.material.color.copy(base); h.material.opacity = fade; h.visible = true;
     }
   }
 
@@ -371,7 +420,8 @@ export class Machine {
 
   dispose() {
     this.memLabel.dispose();
-    for (const b of Object.values(this.blocks)) { b.label.dispose(); b.mat.dispose(); }
+    this.faces.dispose(); this.idle.dispose();
+    for (const b of this.all) b.mat.dispose();
   }
 }
 

@@ -114,7 +114,7 @@ function glowTexture(): THREE.CanvasTexture {
 // ---------- materials (made once, shared) ----------
 export interface Mats {
   lid: THREE.MeshStandardMaterial; gold: THREE.MeshStandardMaterial; ceramic: THREE.MeshStandardMaterial;
-  silicon: THREE.MeshPhysicalMaterial; copper: THREE.MeshStandardMaterial; body: THREE.MeshPhysicalMaterial;
+  silicon: THREE.MeshStandardMaterial; copper: THREE.MeshStandardMaterial; body: THREE.MeshStandardMaterial;
   cap: THREE.MeshStandardMaterial; rail: THREE.MeshStandardMaterial; steel: THREE.MeshStandardMaterial;
   glow: THREE.CanvasTexture;
 }
@@ -126,9 +126,9 @@ export function M(): Mats {
     lid: new THREE.MeshStandardMaterial({ color: 0xc4cad3, metalness: 1, roughness: 0.42, roughnessMap: br }),
     gold: new THREE.MeshStandardMaterial({ color: 0xe0ab4a, metalness: 1, roughness: 0.26 }),
     ceramic: new THREE.MeshStandardMaterial({ color: 0x1a1e26, metalness: 0.15, roughness: 0.58 }),
-    silicon: new THREE.MeshPhysicalMaterial({ color: 0x0c1a33, metalness: 0.55, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.18 }),
+    silicon: new THREE.MeshStandardMaterial({ color: 0x0c1a33, metalness: 0.55, roughness: 0.28 }),
     copper: new THREE.MeshStandardMaterial({ color: 0xd08a4e, metalness: 1, roughness: 0.3 }),
-    body: new THREE.MeshPhysicalMaterial({ color: 0x1b2536, metalness: 0.25, roughness: 0.46, clearcoat: 0.5, clearcoatRoughness: 0.3, envMapIntensity: 0.65 }),
+    body: new THREE.MeshStandardMaterial({ color: 0x1b2536, metalness: 0.25, roughness: 0.4, envMapIntensity: 0.7 }),
     cap: new THREE.MeshStandardMaterial({ color: 0x1d2c47, metalness: 0.3, roughness: 0.42 }),
     rail: new THREE.MeshStandardMaterial({ color: 0x232a36, metalness: 0.85, roughness: 0.4, roughnessMap: br }),
     steel: new THREE.MeshStandardMaterial({ color: 0xaab2bf, metalness: 1, roughness: 0.3 }),

@@ -13,7 +13,8 @@ const RAIL_H = 0.12, BLOCK_H = 0.46, BLOCK_D = 0.56;
 const hex = (n: number, w = 4) => n.toString(16).toUpperCase().padStart(w, '0');
 
 interface Block {
-  line: RLine; group: THREE.Group; mat: THREE.MeshPhysicalMaterial; src: THREE.MeshBasicMaterial; code: THREE.MeshBasicMaterial;
+  line: RLine; group: THREE.Group; body: THREE.Mesh; mat: THREE.MeshStandardMaterial; src: THREE.MeshBasicMaterial; code: THREE.MeshBasicMaterial;
+  srcFace: THREE.Mesh; codeFace: THREE.Mesh;
   home: THREE.Vector3; w: number;
 }
 
@@ -26,6 +27,7 @@ export class Ruler {
 
   private n: number;
   private blocks: Block[] = [];
+  private idle: THREE.MeshStandardMaterial; // what every block that makes code wears while it does not glow (one material is cheaper to draw than ten)
   private flagObjs: THREE.Group[] = [];
   private cur: THREE.Group; private pcMark: THREE.Group;
   private arcObjs: { mesh: THREE.Mesh; tip: THREE.Mesh; segs: number; curve: THREE.QuadraticBezierCurve3 }[] = [];
@@ -58,6 +60,7 @@ export class Ruler {
     this.group.add(top);
 
     // One block per line that takes room in memory
+    this.idle = m.body.clone(); this.idle.color.set(0x31445f);
     lines.forEach((line) => {
       const w = line.size * PITCH - 0.06, g = new THREE.Group();
       const mat = m.body.clone(); mat.color.set(line.code ? 0x31445f : 0x1b2434);
@@ -74,9 +77,9 @@ export class Ruler {
       });
       const src = new THREE.MeshBasicMaterial({ map: srcL.tex, transparent: true, toneMapped: false, depthWrite: false });
       const code = new THREE.MeshBasicMaterial({ map: codeL.tex, transparent: true, toneMapped: false, depthWrite: false, opacity: 0 });
-      for (const [mt, z] of [[src, 0.002], [code, 0.004]] as const) {
-        const p = new THREE.Mesh(unitPlane, mt); p.scale.set(fw, fh, 1); p.position.set(0, 0, BLOCK_D / 2 + z); g.add(p);
-      }
+      const faces = ([[src, 0.002], [code, 0.004]] as const).map(([mt, z]) => {
+        const p = new THREE.Mesh(unitPlane, mt); p.scale.set(fw, fh, 1); p.position.set(0, 0, BLOCK_D / 2 + z); g.add(p); return p;
+      });
       // the same source text on the top face, so the block keeps its name once the code is on the front
       const topL = new Label(cw, Math.round((BLOCK_D - 0.1) * 240), (c, W, H) => text(c, line.text, W / 2, H / 2 + 2, fit(c, line.text, H * 0.36, W - 12, 500), '#a9bbd6', 500));
       const tp = new THREE.Mesh(unitPlane, new THREE.MeshBasicMaterial({ map: topL.tex, transparent: true, toneMapped: false, depthWrite: false }));
@@ -84,7 +87,7 @@ export class Ruler {
       const home = new THREE.Vector3(this.x(line.loc) + (line.size * PITCH) / 2, RAIL_H + BLOCK_H / 2, 0);
       g.position.copy(home); g.visible = false;
       this.group.add(g);
-      this.blocks.push({ line, group: g, mat, src, code, home, w });
+      this.blocks.push({ line, group: g, body, mat, src, code, srcFace: faces[0], codeFace: faces[1], home, w });
     });
 
     // A flag for every label: a pole at its address and its name
@@ -170,10 +173,12 @@ export class Ruler {
       }
       const c = clamp01(this.coded[i]);
       b.code.opacity = c; b.src.opacity = 1 - c;
+      b.codeFace.visible = c > 0.004; b.srcFace.visible = c < 0.996; // a face with nothing on it is not drawn
       // the block in focus glows cool; a block receiving its code, or flying to memory, flashes amber
       const flash = Math.sin(Math.PI * c) * 0.45 + Math.sin(Math.PI * f) * 0.5;
       b.mat.emissive.set(flash > 0.04 ? AMBER : CYAN);
       b.mat.emissiveIntensity = flash > 0.04 ? flash : this.hi === i ? 0.3 : 0;
+      b.body.material = b.mat.emissiveIntensity > 0 || !b.line.code ? b.mat : this.idle;
     });
     this.flagObjs.forEach((g, j) => {
       const k = clamp01(this.flags[j]) * (1 - this.tape) * (1 - this.flagsOff);
@@ -200,6 +205,13 @@ export class Ruler {
       g.position.y = RAIL_H + BLOCK_H / 2 + lift;
       g.scale.setScalar(Math.max(0.001, outBack(clamp01(this.caps))));
     }
+  }
+  // A number that changes whenever something here that casts a shadow has moved
+  get cast() {
+    let x = this.tape * 3 + this.caps * 5 + this.flagsOff * 7;
+    for (let i = 0; i < this.placed.length; i++) x += this.placed[i] * (i + 11) + this.fly[i] * (i + 31);
+    for (let j = 0; j < this.flags.length; j++) x += this.flags[j] * (j + 53);
+    return x;
   }
   private place(g: THREE.Group, loc: number, on: number) {
     g.visible = on > 0.01;

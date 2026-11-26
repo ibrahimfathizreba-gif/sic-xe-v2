@@ -68,9 +68,13 @@ function Rig({ p, view, sel, hover, api }: { p: Props; view: React.RefObject<Vie
     const key = new THREE.DirectionalLight(0xfff4e6, 1.9); key.position.set(-8, 17, 9);
     key.castShadow = true; key.shadow.mapSize.set(1024, 1024);
     const sc = key.shadow.camera; sc.left = -9; sc.right = 9; sc.top = 9; sc.bottom = -9; sc.near = 1; sc.far = 50; sc.updateProjectionMatrix();
-    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03; key.shadow.radius = 6;
+    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.03;
     const fill = new THREE.DirectionalLight(0xbfd6ff, 0.6); fill.position.set(12, 6, -4);
     scene.add(machine.group, hemi, key, fill);
+    // nothing that casts a shadow ever moves here, so the shadows are drawn once and kept
+    gl.shadowMap.autoUpdate = false; gl.shadowMap.needsUpdate = true;
+    const redo = () => { gl.shadowMap.needsUpdate = true; invalidate(); };
+    gl.domElement.addEventListener('webglcontextrestored', redo);
     hooks.changed = () => invalidate();
     const ray = new THREE.Raycaster(), v = new THREE.Vector2();
     api.current = {
@@ -79,7 +83,7 @@ function Rig({ p, view, sel, hover, api }: { p: Props; view: React.RefObject<Vie
         return (ray.intersectObjects(machine.pickables, false)[0]?.object.userData.part as PartId) ?? null;
       },
     };
-    return () => { hooks.changed = () => {}; scene.remove(machine.group, hemi, key, fill); scene.environment = null; env.dispose(); machine.dispose(); api.current = null; };
+    return () => { hooks.changed = () => {}; gl.shadowMap.autoUpdate = true; gl.domElement.removeEventListener('webglcontextrestored', redo); scene.remove(machine.group, hemi, key, fill); scene.environment = null; env.dispose(); machine.dispose(); api.current = null; };
   }, [gl, scene, camera, machine, api]);
 
   // Show the machine's state after the last step, and start the pulses for it
@@ -97,6 +101,7 @@ function Rig({ p, view, sel, hover, api }: { p: Props; view: React.RefObject<Vie
     machine.setDisplay('SW', CC[p.reg.SW & 3] ?? '');
     machine.setDisplay('PC', hex(p.pc, 4));
     machine.setDisplay('IR', p.last ? p.last.instruction.disassembly : '');
+    machine.commit();
     anim.current = { start: performance.now(), stages: p.last ? machine.dataPath(p.last) : null };
     invalidate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,8 +174,8 @@ export default function Machine3D(p: Props) {
       style={hover ? { cursor: 'pointer' } : undefined}
     >
       <Safe fallback={<p className="hint stagehint">{T('The 3D view needs WebGL, which this browser has switched off.', 'العرض ثلاثي الأبعاد يحتاج WebGL، وهو غير مفعّل في هذا المتصفح.')}</p>}>
-        <Canvas frameloop="demand" dpr={[1, 1.75]} shadows gl={{ antialias: true, alpha: true }} camera={{ fov: 30, near: 0.1, far: 200 }}
-          onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05; gl.shadowMap.type = THREE.VSMShadowMap; gl.setClearColor(0x000000, 0); }}>
+        <Canvas frameloop="demand" dpr={[1, 1.5]} shadows="percentage" gl={{ antialias: true, alpha: true }} camera={{ fov: 30, near: 0.1, far: 200 }}
+          onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05; gl.setClearColor(0x000000, 0); }}>
           <Rig p={p} view={view} sel={sel} hover={hover} api={api} />
         </Canvas>
       </Safe>
