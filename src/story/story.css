@@ -5,12 +5,12 @@
 @import "@fontsource/noto-kufi-arabic/arabic-700.css";
 
 .st{
-  --bg:rgb(233 238 243);--ink:#0b1525;--soft:#34435a;--mute:#5d6d85;--hair:#0b152524;--code:#a65a00;--sig:#0a6aa8;--chip:#0b15250d;--panel:#ffffffa6;
+  --bg:rgb(233 238 243);--ink:#0b1525;--soft:#34435a;--mute:#5d6d85;--hair:#0b152524;--code:#a65a00;--sig:#0a6aa8;--chip:#0b15250d;--panel:#ffffffe6;
   --pad:clamp(22px,3.6vw,64px);--top:clamp(84px,11vh,120px);--foot:clamp(64px,9vh,92px);
   --serif:'Instrument Serif','Noto Kufi Arabic',Georgia,serif;
   color:var(--ink);font-family:var(--sans);
 }
-.st[data-theme="dark"]{--ink:#eef4ff;--soft:#c9d7ec;--mute:#93a5bf;--hair:#eef4ff26;--code:#fbbf24;--sig:#38bdf8;--chip:#ffffff12;--panel:#0b1423b8}
+.st[data-theme="dark"]{--ink:#eef4ff;--soft:#c9d7ec;--mute:#93a5bf;--hair:#eef4ff26;--code:#fbbf24;--sig:#38bdf8;--chip:#ffffff12;--panel:#0b1423eb}
 .st,.st *{box-sizing:border-box}
 .st :where(h1,h2,p,small,b,span,code,li,button,strong){transition:color .45s ease,border-color .45s ease,background-color .45s ease}
 .st-bg{position:fixed;inset:0;z-index:0;background:var(--bg)}
@@ -25,11 +25,13 @@ html[dir="rtl"] .st-ghost{inset-inline-start:auto;right:calc(var(--pad) - .04em)
 html[lang="ar"] .st-ch:first-of-type .st-copy{max-width:min(38vw,560px)}
 
 /* ---------- chapters: fixed layers, one on screen at a time ---------- */
-.st-ch{position:fixed;inset:0;z-index:3;pointer-events:none;visibility:hidden;--st:0}
+.st-ch{position:fixed;inset:0;z-index:3;pointer-events:none;visibility:hidden}
 .st-ch[data-on="true"]{visibility:visible}
 .st-ch button{pointer-events:auto}
-/* .sb = appears at --a and leaves at --z (fractions of the chapter), tied to the scroll position */
-.sb{--a:-1;--z:2;--d:.05;--o:clamp(0,min(calc((var(--st) - var(--a)) / var(--d)),calc((var(--z) - var(--st)) / var(--d))),1);opacity:var(--o)}
+/* .sb = appears at --a and leaves at --z (fractions of the chapter), tied to the scroll position.
+   The page's script works out --o (0 hidden … 1 shown) and writes it only when it changes. */
+@property --o{syntax:'<number>';inherits:false;initial-value:0}
+.sb{opacity:var(--o)}
 .st-copy .sb,.st-step.sb,.st-cap.sb{transform:translate3d(0,calc((1 - var(--o)) * 18px),0)}
 
 .st-tl{position:absolute;top:var(--top);inset-inline-start:var(--pad)}
@@ -63,9 +65,9 @@ html[dir="rtl"] .st-eq,html[dir="rtl"] .st-now strong,html[dir="rtl"] .st-now .c
 .st .brand{color:var(--ink)}.st .brand b{color:var(--sig)}
 .st[data-theme="light"] .brand::before{border-color:#0a6aa8;background:linear-gradient(135deg,#0a6aa8 0 35%,#7fb6da 36% 64%,#dbe7f1 65%) center/12px 12px no-repeat,#f4f7fa}
 .st-tools{display:flex;gap:8px;align-items:center}
-.st-btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1px solid var(--hair);border-radius:999px;background:var(--panel);color:var(--ink);font:600 15px var(--sans);cursor:pointer;backdrop-filter:blur(8px)}
+.st-btn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 18px;border:1px solid var(--hair);border-radius:999px;background:var(--panel);color:var(--ink);font:600 15px var(--sans);cursor:pointer}
 .st-btn:hover{border-color:var(--ink)}
-.st-btn.ghost{background:none;border-color:transparent;backdrop-filter:none}.st-btn.ghost:hover{border-color:var(--hair)}
+.st-btn.ghost{background:none;border-color:transparent}.st-btn.ghost:hover{border-color:var(--hair)}
 .st-btn.pri{background:var(--ink);color:var(--bg);border-color:var(--ink)}.st-btn.pri:hover{opacity:.88}
 .st-btn.lg{min-height:54px;padding:0 28px;font-size:17px}
 .st :focus-visible{outline:2px solid var(--sig);outline-offset:3px}
@@ -99,11 +101,11 @@ html[dir="rtl"] .st-eq,html[dir="rtl"] .st-now strong,html[dir="rtl"] .st-now .c
 .st-call.l .tx{right:calc(clamp(40px,6vw,96px) + 16px);text-align:right}
 .st-call .tx b{font:700 clamp(16px,1.3vw,20px) var(--sans);color:var(--ink)}
 .st-call .tx span{font:400 clamp(14px,1.08vw,16.5px)/1.45 var(--sans);color:var(--soft)}
-.st-tag>span{position:absolute;left:0;bottom:8px;translate:-50% 0;white-space:nowrap;font:500 clamp(13px,1.05vw,16px) var(--mono);padding:5px 10px;border-radius:7px;background:var(--panel);border:1px solid var(--hair);color:var(--ink);backdrop-filter:blur(6px)}
+.st-tag>span{position:absolute;left:0;bottom:8px;translate:-50% 0;white-space:nowrap;font:500 clamp(13px,1.05vw,16px) var(--mono);padding:5px 10px;border-radius:7px;background:var(--panel);border:1px solid var(--hair);color:var(--ink)}
 html[lang="ar"] .st-tag>span{font-family:var(--sans)}
 .st-tag.cy>span{border-color:var(--sig);color:var(--sig)}.st-tag.cy b,.st-tag.am b{color:var(--ink);font-weight:700}
 .st-tag.am>span{border-color:var(--code);color:var(--code)}
-.st-tag.lg>span{font:800 clamp(20px,2vw,30px) var(--mono);border:0;background:none;backdrop-filter:none;bottom:0}
+.st-tag.lg>span{font:800 clamp(20px,2vw,30px) var(--mono);border:0;background:none;bottom:0}
 .st-bit>span{position:absolute;left:0;top:6px;translate:-50% 0;white-space:nowrap;font:700 clamp(13px,1.12vw,18px) var(--mono);color:var(--t)}
 .st-hex>span{position:absolute;left:0;bottom:2px;translate:-50% 0;font:800 clamp(22px,2.3vw,36px) var(--mono);color:var(--code)}
 

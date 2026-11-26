@@ -8,7 +8,8 @@ export const BIT_PITCH = 0.5;
 const SIZE = 0.41, MAX = 32, NIB_GAP = 0.3;
 
 interface Cube {
-  group: THREE.Group; spin: THREE.Group; mat: THREE.MeshPhysicalMaterial; decals: THREE.Mesh[];
+  col: THREE.Color; // the body's colour now (it eases towards the field's colour)
+  face: string[]; // the digit on each of the four printed faces: top, front, bottom, back ('' = none)
   shown: string; // what the cube shows now ('' = blank), as tone+value
   angle: number; target: number; x: number; scale: number;
 }
@@ -35,30 +36,41 @@ export class Bits {
   count = 24; show = 0; gap = 0; fall = 0; respawn = 1;
   beam = { on: 0, x0: 0, x1: 0, y: 0 }; // the wedge joining a block on the ruler to this row (in this group's coordinates)
   moving = false; // true while a cube is still sliding, growing or turning over
+  // A number that changes whenever the row's shape has changed (cubes turning over are covered by `moving`)
+  get cast() { return this.count + this.show * 3 + this.gap * 5 + this.fall * 7 + this.respawn * 11; }
 
   private cubes: Cube[] = [];
+  // All the cubes are one instanced mesh, and so are all the 0s and all the 1s printed on them:
+  // four things to draw instead of a hundred.
+  private bodies: THREE.InstancedMesh; private digits: Record<string, THREE.InstancedMesh>;
+  private faceM: THREE.Matrix4[]; private m = new THREE.Matrix4(); private m2 = new THREE.Matrix4();
+  private pos = new THREE.Vector3(); private quat = new THREE.Quaternion(); private scl = new THREE.Vector3(); private eul = new THREE.Euler();
   private beamMesh: THREE.Mesh; private beamPos: THREE.BufferAttribute;
   private neutral = new THREE.Color(0x141d2e); private c = new THREE.Color();
 
   constructor() {
-    const m = M(), geo = rbox(SIZE, SIZE, SIZE, 0.07, 3), h = SIZE / 2 + 0.002, s = SIZE * 0.8;
-    for (let i = 0; i < MAX; i++) {
-      const group = new THREE.Group(), spin = new THREE.Group();
-      const mat = m.body.clone(); mat.color.copy(this.neutral); mat.emissive = new THREE.Color(0x000000); mat.roughness = 0.5; mat.metalness = 0.05; mat.envMapIntensity = 0.5;
-      const body = new THREE.Mesh(geo, mat); body.castShadow = true; spin.add(body);
-      // two faces show the bit to a viewer above and in front; the two opposite faces carry the next value and come round on a half turn
-      const decals = [0, 1, 2, 3].map((k) => {
-        const p = new THREE.Mesh(unitPlane, decal('0')); p.scale.set(s, s, 1); p.visible = false;
-        if (k === 0) { p.position.y = h; p.rotation.x = -Math.PI / 2; }      // top
-        else if (k === 1) p.position.z = h;                                   // front
-        else if (k === 2) { p.position.y = -h; p.rotation.x = Math.PI / 2; }  // bottom
-        else { p.position.z = -h; p.rotation.x = Math.PI; }                   // back
-        spin.add(p); return p;
-      });
-      group.add(spin); group.scale.setScalar(0.001); group.visible = false;
-      this.group.add(group);
-      this.cubes.push({ group, spin, mat, decals, shown: '', angle: 0, target: 0, x: 0, scale: 0 });
+    const mat = M().body.clone();
+    mat.color.set(0xffffff); mat.roughness = 0.5; mat.metalness = 0.05; mat.envMapIntensity = 0.5;
+    // each cube also glows faintly in its own colour
+    mat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n#if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )\n\ttotalEmissiveRadiance += vColor.rgb * 0.16;\n#endif');
+    };
+    this.bodies = new THREE.InstancedMesh(rbox(SIZE, SIZE, SIZE, 0.07, 3), mat, MAX);
+    this.bodies.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.bodies.castShadow = true; this.bodies.frustumCulled = false; this.bodies.count = 0;
+    this.bodies.setColorAt(0, this.neutral); this.bodies.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+    this.group.add(this.bodies);
+    this.digits = {};
+    for (const v of ['0', '1']) {
+      const d = new THREE.InstancedMesh(unitPlane, decal(v), MAX * 4);
+      d.instanceMatrix.setUsage(THREE.DynamicDrawUsage); d.frustumCulled = false; d.count = 0;
+      this.digits[v] = d; this.group.add(d);
     }
+    // two faces show the bit to a viewer above and in front; the two opposite faces carry the next value and come round on a half turn
+    const h = SIZE / 2 + 0.002, s = SIZE * 0.8, face = (x: number, y: number, z: number, rx: number) =>
+      new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(s, s, 1));
+    this.faceM = [face(0, h, 0, -Math.PI / 2), face(0, 0, h, 0), face(0, -h, 0, Math.PI / 2), face(0, 0, -h, Math.PI)]; // top, front, bottom, back
+    for (let i = 0; i < MAX; i++) this.cubes.push({ col: this.neutral.clone(), face: ['', '', '', ''], shown: '', angle: 0, target: 0, x: 0, scale: 0 });
     const g = new THREE.BufferGeometry();
     this.beamPos = new THREE.BufferAttribute(new Float32Array(12), 3);
     g.setAttribute('position', this.beamPos); g.setIndex([0, 1, 2, 2, 1, 3]);
@@ -73,7 +85,8 @@ export class Bits {
   }
 
   update(dt: number) {
-    let moving = false;
+    let moving = false, nBody = 0;
+    const nDigit: Record<string, number> = { 0: 0, 1: 0 }, ease = 1 - Math.exp(-8 * dt);
     for (let i = 0; i < MAX; i++) {
       const q = this.cubes[i], inRow = i < this.count;
       // appear one after another, left to right
@@ -87,27 +100,30 @@ export class Bits {
       const tx = this.slotX(Math.min(i, this.count - 1));
       q.x = Math.abs(q.x - tx) > 6 || Math.abs(q.x - tx) < 0.002 ? tx : damp(q.x, tx, 12, dt);
       if (q.scale !== scale || q.x !== tx) moving = true;
-      q.group.visible = q.scale > 0.004;
-      q.group.position.set(q.x, y, 0);
-      q.group.rotation.z = tilt;
-      q.group.scale.setScalar(Math.max(0.001, q.scale));
 
       // turn over when the content changes: put the new value on the hidden pair of faces, then half a turn
       const w = inRow ? this.want[i] ?? null : null, key = w ? w.tone + w.v : '';
       if (key !== q.shown) {
         const hidden = (Math.round(q.target / Math.PI) + 1) % 2;
-        for (const k of [hidden * 2, hidden * 2 + 1]) { q.decals[k].visible = !!w; if (w) q.decals[k].material = decal(w.v); }
+        q.face[hidden * 2] = q.face[hidden * 2 + 1] = w ? w.v : '';
         q.target += Math.PI; q.shown = key;
       }
       q.angle = damp(q.angle, q.target, 11, dt);
       if (q.target - q.angle < 0.002) q.angle = q.target; else moving = true;
-      q.spin.rotation.x = q.angle;
       const tone = w ? TONE[w.tone] ?? '#ffffff' : null;
-      this.c.set(tone ?? 0x000000);
-      q.mat.emissive.lerp(this.c, 1 - Math.exp(-8 * dt));
-      q.mat.emissiveIntensity = 0.16;
-      q.mat.color.lerp(tone ? this.c.set(tone) : this.c.copy(this.neutral), 1 - Math.exp(-8 * dt));
+      q.col.lerp(tone ? this.c.set(tone) : this.neutral, ease);
+
+      if (q.scale <= 0.004) continue; // not there (yet)
+      this.pos.set(q.x, y, 0); this.quat.setFromEuler(this.eul.set(0, 0, tilt)); this.scl.setScalar(Math.max(0.001, q.scale));
+      this.m.compose(this.pos, this.quat, this.scl).multiply(this.m2.makeRotationX(q.angle));
+      this.bodies.setMatrixAt(nBody, this.m); this.bodies.setColorAt(nBody++, q.col);
+      for (let k = 0; k < 4; k++) {
+        const v = q.face[k];
+        if (v) this.digits[v].setMatrixAt(nDigit[v]++, this.m2.multiplyMatrices(this.m, this.faceM[k]));
+      }
     }
+    this.bodies.count = nBody; this.bodies.instanceMatrix.needsUpdate = true; this.bodies.instanceColor!.needsUpdate = true;
+    for (const v of ['0', '1']) { this.digits[v].count = nDigit[v]; this.digits[v].instanceMatrix.needsUpdate = true; }
     this.moving = moving;
     const b = this.beam, on = clamp01(b.on) * clamp01(this.show);
     this.beamMesh.visible = on > 0.01;

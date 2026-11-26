@@ -35,6 +35,7 @@ Requires Node.js 20.19+ or 22.12+.
   - **Presenting**: `Space`, `→`, `↓` or `PageDown` glide to the next place where the picture is complete; `Shift+Space`, `←`, `↑` or `PageUp` go back; `Home` and `End` jump to the ends. The marks at the side jump to a chapter.
   - At the end of Pass 2 you can pick any line of the program and open that same line in the lab. The last screen opens the lab on the same program.
   - The address keeps the place: `#learn`, `#assemble`, `#run`, `#practice`. A link with `#assemble` opens the lab directly.
+  - It is built to stay smooth on an ordinary laptop: the scene is drawn only while something moves, shadows are redrawn only when something that casts one has moved, and on a slow machine the moving picture is drawn with fewer pixels and sharpened again the moment it stands still (the text is HTML and always sharp).
 - **Layout**: the program stays on one side and the explanation on the other, so the line, its steps and its bits are on screen together. Modes at the top: **0 Learn → 1 Assemble → 2 Run · 3 Practice**.
 - **English / Arabic**: one button switches the whole interface and every generated explanation to Arabic (right-to-left); code, hex and bits stay left-to-right. English is the default; the choice is remembered (`?lang=ar` also works).
 - **Assemble mode (step by step)**: walk through what the assembler does, with Step, Back and a timeline.
